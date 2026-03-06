@@ -96,6 +96,24 @@ export default class BaseAgent {
             prompt += `Harness Focus: ${context.modeConfig.harnessFocus}\n\n`;
         }
 
+        if (context.currentArtifact) {
+            prompt += '## Final Artifact Under Review\n';
+            prompt += `Artifact ID: ${context.currentArtifact.id}\n`;
+            prompt += `Artifact Hash: ${context.currentArtifact.hash}\n`;
+            prompt += `Artifact Path: ${context.currentArtifact.path}\n`;
+            prompt += `Produced By: ${context.currentArtifact.producedBy}\n`;
+            prompt += `Artifact Type: ${context.currentArtifact.type}\n`;
+            if (context.currentArtifact.content) {
+                prompt += `\n### Artifact Content\n${context.currentArtifact.content}\n`;
+            }
+            prompt += '\n';
+        }
+
+        if (context.artifactContract) {
+            prompt += '## Artifact Contract\n';
+            prompt += `${JSON.stringify(context.artifactContract, null, 2)}\n\n`;
+        }
+
         prompt += `## Current Task\n${input}\n`;
 
         return prompt;

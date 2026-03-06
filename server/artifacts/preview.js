@@ -177,6 +177,13 @@ function buildModeFallbackHtml({ userInput, previousSteps = [], outputMode = 'we
   `;
 
   if (outputMode === 'website') {
+    const intent = detectWebsiteIntent(userInput);
+    if (intent === 'dashboard') {
+      return buildDashboardFallback({ userInput, heroAsset, planSummary, researchSummary, testSummary, criticSummary, sharedStyles });
+    }
+    if (intent === 'landing') {
+      return buildLandingFallback({ userInput, heroAsset, planSummary, researchSummary, testSummary, criticSummary, sharedStyles });
+    }
     return `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -364,6 +371,113 @@ function buildModeFallbackHtml({ userInput, previousSteps = [], outputMode = 'we
         <div class="prose">${escapeHtml(criticSummary)}</div>
       </section>
     </article>
+  </div>
+</body>
+</html>`;
+}
+
+function detectWebsiteIntent(userInput) {
+  const text = String(userInput || '').toLowerCase();
+  if (/login|signin|signup|auth|로그인|회원가입|인증/.test(text)) return 'login';
+  if (/dashboard|admin|analytics|crm|관리자|대시보드|백오피스/.test(text)) return 'dashboard';
+  if (/landing|homepage|home page|marketing|promo|pricing|hero|랜딩|홈페이지|메인페이지/.test(text)) return 'landing';
+  return 'generic';
+}
+
+function buildLandingFallback({ userInput, heroAsset, planSummary, researchSummary, testSummary, criticSummary, sharedStyles }) {
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MAS Landing Preview</title>
+  <style>
+    ${sharedStyles}
+    .hero { display:grid; grid-template-columns:1.1fr .9fr; gap:24px; align-items:center; padding:28px; }
+    .hero h1 { font-size:clamp(40px, 7vw, 76px); line-height:.98; margin:16px 0; }
+    .hero p { font-size:18px; line-height:1.75; color:var(--muted); max-width:60ch; }
+    .cta-row { display:flex; gap:12px; margin-top:18px; flex-wrap:wrap; }
+    .btn { padding:13px 18px; border-radius:999px; border:1px solid var(--line); color:var(--text); text-decoration:none; font-weight:700; }
+    .btn.primary { background:linear-gradient(135deg, #38bdf8, #818cf8); color:#08111f; border:0; }
+    .stats, .features { display:grid; grid-template-columns:repeat(3, 1fr); gap:18px; margin-top:24px; }
+    .item { padding:22px; }
+    .item h3 { margin-bottom:10px; font-size:17px; }
+    @media (max-width: 900px) { .hero, .stats, .features { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero card">
+      <div>
+        <div class="eyebrow">Guaranteed Landing Preview</div>
+        <h1>${escapeHtml(userInput)}</h1>
+        <p>${escapeHtml(researchSummary.slice(0, 360) || planSummary)}</p>
+        <div class="cta-row">
+          <a class="btn primary" href="#start">시작하기</a>
+          <a class="btn" href="#details">자세히 보기</a>
+        </div>
+      </div>
+      <div>
+        ${heroAsset ? `<img class="hero-image" src="${escapeAttr(heroAsset)}" alt="Generated landing asset" />` : `<div class="card item"><h3>Visual Direction</h3><div class="prose">${escapeHtml(planSummary)}</div></div>`}
+      </div>
+    </section>
+    <section class="stats">
+      <div class="card item"><h3>핵심 가치</h3><div class="prose">${escapeHtml(planSummary)}</div></div>
+      <div class="card item"><h3>검증 포인트</h3><div class="prose">${escapeHtml(testSummary)}</div></div>
+      <div class="card item"><h3>품질 메모</h3><div class="prose">${escapeHtml(criticSummary)}</div></div>
+    </section>
+    <section id="details" class="features">
+      <div class="card item"><h3>문제 정의</h3><div class="prose">${escapeHtml(researchSummary.slice(0, 700))}</div></div>
+      <div class="card item"><h3>전달 구조</h3><div class="prose">${escapeHtml(planSummary)}</div></div>
+      <div class="card item"><h3>다음 단계</h3><div class="prose">LLM coder output was repaired into a guaranteed landing-style preview so the user always receives a usable homepage artifact.</div></div>
+    </section>
+  </div>
+</body>
+</html>`;
+}
+
+function buildDashboardFallback({ userInput, heroAsset, planSummary, researchSummary, testSummary, criticSummary, sharedStyles }) {
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MAS Dashboard Preview</title>
+  <style>
+    ${sharedStyles}
+    .layout { display:grid; grid-template-columns:260px 1fr; gap:20px; }
+    .sidebar, .main, .metric, .panel { padding:22px; }
+    .menu { display:grid; gap:10px; margin-top:18px; }
+    .menu div { padding:12px 14px; border-radius:14px; background:rgba(148,163,184,0.1); color:var(--text); }
+    .metrics { display:grid; grid-template-columns:repeat(3, 1fr); gap:18px; margin-bottom:18px; }
+    .content { display:grid; grid-template-columns:1.2fr .8fr; gap:18px; }
+    @media (max-width: 900px) { .layout, .metrics, .content { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap layout">
+    <aside class="card sidebar">
+      <div class="eyebrow">Guaranteed Dashboard Preview</div>
+      <h2 style="margin-top:12px;">${escapeHtml(userInput)}</h2>
+      <div class="menu">
+        <div>Overview</div>
+        <div>Analytics</div>
+        <div>Operations</div>
+        <div>Settings</div>
+      </div>
+      ${heroAsset ? `<img class="hero-image" style="margin-top:18px; min-height:180px;" src="${escapeAttr(heroAsset)}" alt="Generated dashboard asset" />` : ''}
+    </aside>
+    <main class="main">
+      <section class="metrics">
+        <div class="card metric"><div class="muted">Planning</div><h2 style="margin-top:8px;">Ready</h2><div class="prose">${escapeHtml(planSummary.slice(0, 240))}</div></div>
+        <div class="card metric"><div class="muted">Validation</div><h2 style="margin-top:8px;">Checked</h2><div class="prose">${escapeHtml(testSummary.slice(0, 240))}</div></div>
+        <div class="card metric"><div class="muted">Quality</div><h2 style="margin-top:8px;">Reviewed</h2><div class="prose">${escapeHtml(criticSummary.slice(0, 240))}</div></div>
+      </section>
+      <section class="content">
+        <div class="card panel"><h3 class="section-title">Primary Workspace</h3><div class="prose">${escapeHtml(researchSummary.slice(0, 1200))}</div></div>
+        <div class="card panel"><h3 class="section-title">System Notes</h3><div class="prose">Coder output did not produce a dashboard, so MAS assembled a dashboard-style fallback layout to keep the run usable and previewable.</div></div>
+      </section>
+    </main>
   </div>
 </body>
 </html>`;

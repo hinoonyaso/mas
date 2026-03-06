@@ -181,6 +181,10 @@ export default {
     maxRepairAttempts: 1,
   },
 
+  ruleGate: {
+    maxRepairAttempts: 1,
+  },
+
   // 출력 모드 설정
   outputModes,
 };

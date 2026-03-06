@@ -9,12 +9,14 @@ export default class ContextEngine {
     /**
      * 에이전트 실행 전 최적화된 컨텍스트 구성
      */
-    buildContext(agentName, { userInput, previousSteps = [], runId, outputMode = 'website' }) {
+    buildContext(agentName, { userInput, previousSteps = [], runId, outputMode = 'website', currentArtifact = null, artifactContract = null }) {
         const modeConfig = config.outputModes[outputMode] || config.outputModes.website;
         const context = {
             previousSteps: this._selectRelevantSteps(agentName, previousSteps, outputMode),
             memory: this._getRelevantMemory(agentName, userInput),
             outputMode,
+            currentArtifact,
+            artifactContract,
             modeConfig: {
                 label: modeConfig.label,
                 researchDepth: modeConfig.researchDepth,

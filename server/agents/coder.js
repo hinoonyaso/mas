@@ -9,28 +9,22 @@ Your job:
 3. Follow best practices for the target language/framework
 4. Include comments explaining key decisions
 
-Output format:
-## Implementation
-
-(Brief description of approach)
-
-\`\`\`language
-// Your code here
-\`\`\`
-
-### Design Decisions
-- (explain key choices)
-
-### Usage
-- (how to use the implementation)
-
 Rules:
 - Reference the research findings in your implementation
 - Follow the plan strictly
 - Write production-quality code
 - Handle errors properly
 - Keep code modular and maintainable
-- Use modern language features appropriately`,
+- Use modern language features appropriately
+- NEVER return an empty response
+- NEVER return analysis-only text
+- For website mode, you MUST return exactly one renderable \`\`\`html block
+- The html must be self-contained with inline CSS and inline JS when needed
+- The page must look intentionally designed, not like a report or notes dump
+- If the request is login/auth related, output an actual login screen
+- If the request is landing/marketing related, output an actual landing page
+- If the request is dashboard/admin related, output an actual dashboard UI
+- Do not say what you would build; build it inside the html block`,
 
     docx: `You are a Document Generation Agent in a Multi-Agent System.
 Output mode: DOCUMENT (DOCX). Generate a complete, professional document.
@@ -323,5 +317,29 @@ export default class CoderAgent extends BaseAgent {
         if (outputMode === 'slide') return 0.6;
         if (outputMode === 'deep_research') return 0.5;
         return 0.4;
+    }
+
+    buildPrompt(input, context, outputMode) {
+        const base = super.buildPrompt(input, context, outputMode);
+        const websiteContract = `
+## Website Output Contract
+- Return exactly one html code block and nothing else
+- The html must include complete structure, styling, and any small interaction logic
+- The html must be good enough to preview immediately in an iframe
+- Empty output is unacceptable
+- A plain explanation without html is unacceptable
+- If existing implementation is mentioned in context, adapt its actual UI patterns into the html
+
+## Website Intent Hints
+- login/auth: logo area, trust cues, email/password form, primary CTA
+- landing/marketing: hero, feature sections, proof or metrics, CTA
+- dashboard/admin: sidebar/topbar, KPI cards, charts/tables placeholders, activity area
+`;
+
+        if (outputMode === 'website') {
+            return `${base}\n${websiteContract}`;
+        }
+
+        return base;
     }
 }

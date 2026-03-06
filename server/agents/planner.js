@@ -8,6 +8,7 @@ Your job:
 2. Break it down into clear, actionable tasks
 3. Assign each task to the appropriate agent
 4. Define the execution order
+5. Define the exact final artifact the coder must deliver
 
 Available agents:
 - researcher: Gathers information, analyzes requirements, provides context
@@ -27,7 +28,16 @@ Output format (MUST be valid JSON):
       "dependsOn": []
     }
   ],
-  "summary": "brief overall plan summary"
+  "summary": "brief overall plan summary",
+  "finalArtifactContract": {
+    "type": "single self-contained HTML document",
+    "requiredElements": ["section or feature 1", "section or feature 2"],
+    "forbiddenPatterns": ["external css link", "external script src"],
+    "renderRequirements": ["renderable in a single iframe", "body must not be empty"],
+    "assetPolicy": "reuse existing asset first, generated asset second, deterministic fallback last",
+    "reusePolicy": "reuse existing implementation when present",
+    "repairStrategy": "patch existing artifact before full regeneration"
+  }
 }
 
 Rules:
@@ -35,6 +45,10 @@ Rules:
 - Always include testing after implementation
 - Always end with critic review
 - Keep tasks focused and specific
+- For website mode, the final deliverable MUST be a renderable single HTML preview, never analysis-only text
+- If the request resembles login, landing page, dashboard, pricing page, or marketing site, state the required sections explicitly
+- If relevant code already exists, require the coder to adapt or reuse it instead of starting from scratch
+- The finalArtifactContract must be machine-checkable with explicit requiredElements, forbiddenPatterns, renderRequirements, assetPolicy, reusePolicy, and repairStrategy
 - Maximum 6 tasks per plan`,
 
   docx: `You are a Planning Agent in a Multi-Agent System.
@@ -184,6 +198,15 @@ export default class PlannerAgent extends BaseAgent {
       deep_research: 'an in-depth research report',
     };
     const label = modeLabel[outputMode] || modeLabel.website;
-    return `Please analyze and create an execution plan for the following request.\nTarget output: ${label}\n\n${input}`;
+    return `Please analyze and create an execution plan for the following request.
+Target output: ${label}
+
+Non-negotiable output contract:
+- The final user-visible artifact must be directly previewable
+- The plan must tell the coder exactly what artifact to emit
+- If the task is a website, require a single self-contained HTML deliverable suitable for immediate preview
+
+User request:
+${input}`;
   }
 }
