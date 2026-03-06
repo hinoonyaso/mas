@@ -1,0 +1,14 @@
+{
+  "name": "ocastration",
+  "version": "1.0.0",
+  "description": "Multi-Agent System Orchestration Platform",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "cd server && node index.js",
+    "dev:client": "cd client && npm run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

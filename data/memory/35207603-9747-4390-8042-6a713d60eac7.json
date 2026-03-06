@@ -1,0 +1,8 @@
+{
+  "input": "Create a short hello-world style implementation plan and sample code for a CLI that prints hello. Do not require images.",
+  "status": "completed",
+  "evaluation": "Success Rate: 100% | Total Latency: 165.0s | Total Tokens: 5752 | Est. Cost: $0.025 | Quality: 1/10 (REJECTED)",
+  "totalTime": 165002,
+  "timestamp": "2026-03-06T12:04:36.738Z",
+  "savedAt": "2026-03-06T12:04:36.738Z"
+}

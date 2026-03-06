@@ -1,0 +1,32 @@
+
+> ocastration-server@1.0.0 dev
+> node --watch index.js
+
+
+╔══════════════════════════════════════════════════╗
+║     🤖 MAS Orchestration Server                  ║
+║     Port: 3001                                ║
+║     WebSocket: ws://localhost:3001             ║
+╚══════════════════════════════════════════════════╝
+
+Available LLM Providers: demo mode
+Agent Configuration:
+  Planner    → gemini
+  Researcher → claude
+  Coder      → codex
+  Tester     → gemini
+  Critic     → claude
+  
+[WS] Client connected (total: 1)
+[WS] Client connected (total: 2)
+[WS] Client connected (total: 3)
+[WS] Client connected (total: 4)
+[LLM] Detected CLI providers: gemini, claude, codex
+[WS] Client connected (total: 5)
+[WS] Client connected (total: 6)
+[WS] Client connected (total: 7)
+[WS] Client connected (total: 8)
+[WS] Client disconnected (total: 7)
+[WS] Client disconnected (total: 6)
+[WS] Client disconnected (total: 5)
+[WS] Client disconnected (total: 4)
