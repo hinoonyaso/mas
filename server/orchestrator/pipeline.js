@@ -145,6 +145,7 @@ export default class Pipeline {
                 finalOutput: criticResult.output,
                 criticOutput: criticResult.output,
                 outputMode,
+                steps,
             });
 
             const runResult = {
@@ -315,7 +316,9 @@ CODER RECOVERY INSTRUCTION
 
         while (repairAttempt < maxRepairAttempts && this._shouldRepairForQuality(quality, minScore)) {
             repairAttempt += 1;
-            const repairInput = this._buildPatchRepairPrompt(userInput, steps, outputMode, quality, minScore, repairAttempt, currentArtifact);
+            const latestViolations = [...steps].reverse().find((step) => step.agent === 'rule_gate')?.violations || [];
+            const repairMode = this._shouldEscalateRepair(latestViolations, repairAttempt) ? 'CONSTRAINED_REGENERATE' : 'PATCH_ONLY';
+            const repairInput = this._buildPatchRepairPrompt(userInput, steps, outputMode, quality, minScore, repairAttempt, currentArtifact, repairMode);
 
             this._broadcast('pipeline:quality-repair', {
                 attempt: repairAttempt,
@@ -323,6 +326,7 @@ CODER RECOVERY INSTRUCTION
                 score: quality.score,
                 recommendation: quality.recommendation,
                 minScore,
+                repairMode,
             });
 
             codeResult = await this._executeStep('coder', repairInput, steps, logs, customModels.coder, outputMode, currentArtifact, artifactContract);
@@ -340,7 +344,7 @@ CODER RECOVERY INSTRUCTION
         return quality.score < minScore || quality.recommendation === 'REJECTED' || quality.recommendation === 'NEEDS_REVISION';
     }
 
-    _buildPatchRepairPrompt(userInput, steps, outputMode, quality, minScore, repairAttempt, currentArtifact) {
+    _buildPatchRepairPrompt(userInput, steps, outputMode, quality, minScore, repairAttempt, currentArtifact, repairMode = 'PATCH_ONLY') {
         const testerOutput = [...steps].reverse().find((step) => step.agent === 'tester')?.output || 'No tester feedback.';
         const criticOutput = [...steps].reverse().find((step) => step.agent === 'critic')?.output || 'No critic feedback.';
 
@@ -351,11 +355,12 @@ QUALITY GATE REPAIR REQUEST
 - Current quality score: ${quality.score}/10
 - Required minimum score: ${minScore}/10
 - Repair attempt: ${repairAttempt}
-- Repair mode: PATCH ONLY
+- Repair mode: ${repairMode}
 
-You must patch the locked artifact below instead of fully redesigning it.
-Preserve the existing structure unless a tester/critic issue explicitly requires a change.
-Do not replace the whole page with a new concept.
+You must improve the locked artifact below.
+If repair mode is PATCH_ONLY, preserve the existing structure unless a tester/critic issue explicitly requires a change.
+If repair mode is CONSTRAINED_REGENERATE, you may rebuild the artifact, but you must preserve the same user request, output mode, and core sections.
+Do not replace the page with a different concept.
 
 Locked artifact hash:
 ${currentArtifact?.hash || 'unknown'}
@@ -378,10 +383,12 @@ ${criticOutput}`;
 
         while (attempt < maxRepairAttempts && violations.length > 0) {
             attempt += 1;
+            const repairMode = this._shouldEscalateRepair(violations, attempt) ? 'CONSTRAINED_REGENERATE' : 'PATCH_ONLY';
             this._broadcast('pipeline:rule-gate', {
                 attempt,
                 outputMode,
                 artifactHash: currentArtifact?.hash || null,
+                repairMode,
                 violations,
             });
 
@@ -389,11 +396,13 @@ ${criticOutput}`;
 
 RULE GATE PATCH REQUEST
 - Output mode: ${outputMode}
-- Repair mode: PATCH ONLY
+- Repair mode: ${repairMode}
 - Locked artifact hash: ${currentArtifact?.hash || 'unknown'}
 - Violations to fix: ${violations.map((v) => v.code).join(', ')}
 
-You must fix only these rule-gate violations while preserving the current artifact's structure and intent.
+You must correct the rule-gate violations and keep as much of the current artifact intent as possible.
+If repair mode is PATCH_ONLY, preserve the current structure and patch only the broken areas.
+If repair mode is CONSTRAINED_REGENERATE, rebuild the artifact but preserve the same user request, mode contract, and core sections.
 Return the corrected final artifact in the required output format.
 
 Violation details:
@@ -453,6 +462,48 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
             }
             if (/(로그인|login|signin|auth|인증)/i.test(text + ' ' + JSON.stringify(requiredElements)) && !/<form\b/i.test(text)) {
                 violations.push({ code: 'STRUCTURE_MISSING', message: 'Login/auth pages must contain a form element.' });
+            }
+        } else if (outputMode === 'docx' || outputMode === 'deep_research') {
+            if (!/(?:<!doctype html>|<html\b)/i.test(text)) {
+                violations.push({ code: 'NON_RENDERABLE', message: 'Document artifact must contain a full HTML document root.' });
+            }
+            const headingCount = (text.match(/<h[1-3]\b/gi) || []).length;
+            if (headingCount < 2) {
+                violations.push({ code: 'STRUCTURE_MISSING', message: 'Document artifact must include at least two heading sections.' });
+            }
+            const paragraphCount = (text.match(/<p\b/gi) || []).length;
+            if (paragraphCount < 3) {
+                violations.push({ code: 'CONTENT_TOO_THIN', message: 'Document artifact must contain multiple content paragraphs.' });
+            }
+        } else if (outputMode === 'sheet') {
+            if (!/(?:<!doctype html>|<html\b)/i.test(text)) {
+                violations.push({ code: 'NON_RENDERABLE', message: 'Sheet artifact must contain a full HTML document root.' });
+            }
+            if (!/<table\b/i.test(text)) {
+                violations.push({ code: 'STRUCTURE_MISSING', message: 'Sheet artifact must contain a table.' });
+            }
+            const headerCount = (text.match(/<th\b/gi) || []).length;
+            if (headerCount < 2) {
+                violations.push({ code: 'HEADER_MISSING', message: 'Sheet artifact must contain at least two table headers.' });
+            }
+            const rowCount = (text.match(/<tr\b/gi) || []).length;
+            if (rowCount < 3) {
+                violations.push({ code: 'DATA_REGION_EMPTY', message: 'Sheet artifact must contain header and data rows.' });
+            }
+        } else if (outputMode === 'slide') {
+            if (!/(?:<!doctype html>|<html\b)/i.test(text)) {
+                violations.push({ code: 'NON_RENDERABLE', message: 'Slide artifact must contain a full HTML document root.' });
+            }
+            const slideCount = (text.match(/class=["'][^"']*\bslide\b[^"']*["']/gi) || []).length;
+            if (slideCount < 3) {
+                violations.push({ code: 'SLIDE_COUNT_TOO_LOW', message: 'Slide artifact must contain at least three slides.' });
+            }
+            if (!/<h1\b/i.test(text)) {
+                violations.push({ code: 'TITLE_SLIDE_MISSING', message: 'Slide artifact must contain a title slide heading.' });
+            }
+            const longTextBlocks = (text.match(/>[^<]{240,}</g) || []).length;
+            if (longTextBlocks > 2) {
+                violations.push({ code: 'TEXT_DENSITY_TOO_HIGH', message: 'Slide artifact contains overly dense text blocks.' });
             }
         }
 
@@ -527,6 +578,42 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
             };
         }
 
+        if (outputMode === 'docx' || outputMode === 'deep_research') {
+            return {
+                type: 'self-contained document HTML',
+                requiredElements: ['<h1', '<p'],
+                forbiddenPatterns: [],
+                renderRequirements: ['renderable in a single iframe', 'body must not be empty'],
+                assetPolicy: 'mode default',
+                reusePolicy: 'reuse existing implementation when present',
+                repairStrategy: 'patch existing artifact before full regeneration',
+            };
+        }
+
+        if (outputMode === 'sheet') {
+            return {
+                type: 'self-contained spreadsheet HTML',
+                requiredElements: ['<table', '<th'],
+                forbiddenPatterns: [],
+                renderRequirements: ['renderable in a single iframe', 'body must not be empty'],
+                assetPolicy: 'mode default',
+                reusePolicy: 'reuse existing implementation when present',
+                repairStrategy: 'patch existing artifact before full regeneration',
+            };
+        }
+
+        if (outputMode === 'slide') {
+            return {
+                type: 'self-contained slide deck HTML',
+                requiredElements: ['class="slide"', '<h1'],
+                forbiddenPatterns: [],
+                renderRequirements: ['renderable in a single iframe', 'body must not be empty'],
+                assetPolicy: 'reuse existing asset first, generated asset second, deterministic fallback last',
+                reusePolicy: 'reuse existing implementation when present',
+                repairStrategy: 'patch existing artifact before full regeneration',
+            };
+        }
+
         return {
             type: 'self-contained artifact',
             requiredElements: [],
@@ -536,6 +623,19 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
             reusePolicy: 'reuse existing implementation when present',
             repairStrategy: 'patch existing artifact before full regeneration',
         };
+    }
+
+    _shouldEscalateRepair(violations, attempt) {
+        const severeCodes = new Set([
+            'EMPTY_OUTPUT',
+            'NON_RENDERABLE',
+            'STRUCTURE_MISSING',
+            'SLIDE_COUNT_TOO_LOW',
+            'DATA_REGION_EMPTY',
+        ]);
+
+        const severeCount = violations.filter((violation) => severeCodes.has(violation.code)).length;
+        return severeCount >= 2 || violations.length >= 4 || attempt > 1;
     }
 
     _publishArtifactSnapshot(runId, codeResult, steps, outputMode) {

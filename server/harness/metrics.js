@@ -89,3 +89,34 @@ export function evaluateQuality(criticOutput, outputMode = 'website') {
 
     return { score, recommendation, outputMode };
 }
+
+export function analyzeExecutionPath(steps = []) {
+    const coderSteps = steps.filter((step) => step.agent === 'coder');
+    const ruleGateSteps = steps.filter((step) => step.agent === 'rule_gate');
+    const qualityRepairCount = Math.max(coderSteps.length - 1 - (ruleGateSteps.some((step) => step.success === false) ? 1 : 0), 0);
+    const latestCoder = coderSteps[coderSteps.length - 1] || null;
+    const firstCoder = coderSteps[0] || null;
+    const fallbackUsed = /Guaranteed Fallback Output/i.test(String(latestCoder?.output || ''));
+    const firstPassSuccess = Boolean(firstCoder?.output) && !ruleGateSteps.some((step) => step.success === false);
+    const ruleGateRepairUsed = coderSteps.length > 1 || ruleGateSteps.length > 0;
+    const failures = [];
+
+    for (const step of ruleGateSteps) {
+        for (const violation of step.violations || []) {
+            failures.push(violation.code);
+        }
+    }
+
+    if (fallbackUsed) failures.push('FALLBACK_USED');
+    if (coderSteps.some((step) => !String(step.output || '').trim())) failures.push('EMPTY_OUTPUT');
+
+    return {
+        firstPassSuccess,
+        ruleGateRepairUsed,
+        qualityGateRepairUsed: qualityRepairCount > 0,
+        qualityRepairCount,
+        fallbackUsed,
+        fallbackReason: fallbackUsed ? 'CODER_OUTPUT_UNUSABLE' : null,
+        failureTaxonomy: [...new Set(failures)],
+    };
+}

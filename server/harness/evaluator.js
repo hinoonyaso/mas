@@ -1,4 +1,4 @@
-import { calculatePipelineMetrics, evaluateQuality } from './metrics.js';
+import { analyzeExecutionPath, calculatePipelineMetrics, evaluateQuality } from './metrics.js';
 
 export default class Evaluator {
     constructor() {
@@ -9,24 +9,26 @@ export default class Evaluator {
      * 전체 파이프라인 실행 결과를 평가
      */
     evaluate(runResult) {
-        const { logs, finalOutput, criticOutput, outputMode = 'website' } = runResult;
+        const { logs, finalOutput, criticOutput, outputMode = 'website', steps = [] } = runResult;
 
         const pipelineMetrics = calculatePipelineMetrics(logs);
         const qualityAssessment = evaluateQuality(criticOutput, outputMode);
+        const executionPath = analyzeExecutionPath(steps);
 
         const evaluation = {
             timestamp: new Date().toISOString(),
             outputMode,
             pipelineMetrics,
             quality: qualityAssessment,
-            summary: this._generateSummary(pipelineMetrics, qualityAssessment, outputMode),
+            executionPath,
+            summary: this._generateSummary(pipelineMetrics, qualityAssessment, executionPath, outputMode),
         };
 
         this.evaluations.push(evaluation);
         return evaluation;
     }
 
-    _generateSummary(metrics, quality, outputMode = 'website') {
+    _generateSummary(metrics, quality, executionPath, outputMode = 'website') {
         const parts = [];
 
         const modeLabels = {
@@ -53,6 +55,16 @@ export default class Evaluator {
 
         // 품질 점수
         parts.push(`Quality: ${quality.score}/10 (${quality.recommendation})`);
+
+        if (executionPath.ruleGateRepairUsed) {
+            parts.push(`Rule Repair: ${executionPath.ruleGateRepairUsed ? 'yes' : 'no'}`);
+        }
+        if (executionPath.qualityGateRepairUsed) {
+            parts.push(`Quality Repair: ${executionPath.qualityRepairCount}`);
+        }
+        if (executionPath.fallbackUsed) {
+            parts.push('Fallback: yes');
+        }
 
         return parts.join(' | ');
     }
