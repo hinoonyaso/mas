@@ -1,5 +1,11 @@
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { buildArtifactPath } from './storage.js';
+
+const ARTIFACTS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(ARTIFACTS_DIR, '..', '..');
+const SERVER_PUBLIC_DIR = path.join(PROJECT_ROOT, 'server', 'public');
 
 function extractCodeBlocks(text) {
   const blocks = [];
@@ -14,6 +20,41 @@ function extractCodeBlocks(text) {
   }
 
   return blocks;
+}
+
+function tryBuildServerLoginPreview(userInput, outputMode = 'website') {
+  if (outputMode !== 'website') return null;
+  if (!/login|signin|auth|로그인|인증/i.test(String(userInput || ''))) return null;
+
+  const htmlPath = path.join(SERVER_PUBLIC_DIR, 'login.html');
+  const cssPath = path.join(SERVER_PUBLIC_DIR, 'styles', 'login.css');
+  const jsPath = path.join(SERVER_PUBLIC_DIR, 'scripts', 'login.js');
+  const bgPath = path.join(SERVER_PUBLIC_DIR, 'assets', 'premium_login_background.svg');
+
+  if (!fs.existsSync(htmlPath) || !fs.existsSync(cssPath) || !fs.existsSync(jsPath)) {
+    return null;
+  }
+
+  let html = fs.readFileSync(htmlPath, 'utf8');
+  const css = fs.readFileSync(cssPath, 'utf8');
+  const js = fs.readFileSync(jsPath, 'utf8');
+  const bgSvg = fs.existsSync(bgPath) ? fs.readFileSync(bgPath, 'utf8') : '';
+
+  const inlinedCss = bgSvg
+    ? css.replace(/url\(["']?\/assets\/premium_login_background\.svg["']?\)/g, `url("data:image/svg+xml;utf8,${encodeURIComponent(bgSvg)}")`)
+    : css;
+
+  html = html.replace(/<link rel="stylesheet" href="\/styles\/login\.css">\s*/i, `<style>\n${inlinedCss}\n</style>\n`);
+  html = html.replace(/<script type="module" src="\/scripts\/login\.js"><\/script>\s*/i, `<script>\n${js}\n</script>\n`);
+
+  if (!/MAS Preview/i.test(html)) {
+    html = html.replace(
+      /<main class="login-shell"/i,
+      `<div style="position:fixed;top:16px;left:16px;z-index:10;padding:8px 12px;border-radius:999px;background:rgba(8,20,40,0.72);border:1px solid rgba(125,156,194,0.32);color:#67e8f9;font:600 12px/1 Inter, sans-serif;letter-spacing:.08em;text-transform:uppercase;">MAS Preview</div>\n    <main class="login-shell"`
+    );
+  }
+
+  return html;
 }
 
 function extractAssetPaths(text) {
@@ -39,6 +80,11 @@ function summarizeStep(step, fallback = 'No output provided.') {
 }
 
 function buildModeFallbackHtml({ userInput, previousSteps = [], outputMode = 'website' }) {
+  const existingLoginPreview = tryBuildServerLoginPreview(userInput, outputMode);
+  if (existingLoginPreview) {
+    return existingLoginPreview;
+  }
+
   const researcher = previousSteps.find((step) => step.agent === 'researcher');
   const planner = previousSteps.find((step) => step.agent === 'planner');
   const tester = previousSteps.find((step) => step.agent === 'tester');

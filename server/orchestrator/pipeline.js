@@ -11,6 +11,7 @@ import TesterAgent from '../agents/tester.js';
 import CriticAgent from '../agents/critic.js';
 import { ensureRenderableOutput, savePreviewArtifact } from '../artifacts/preview.js';
 import { collectArtifacts } from '../artifacts/manifest.js';
+import { evaluateQuality } from '../harness/metrics.js';
 
 export default class Pipeline {
     constructor(broadcast) {
@@ -91,14 +92,28 @@ export default class Pipeline {
             }
 
             // Step 4: Coder
-            const codeResult = await this._executeStep('coder', userInput, steps, logs, customModels.coder, outputMode);
+            let codeResult = await this._executeStep('coder', userInput, steps, logs, customModels.coder, outputMode);
             this._ensureCoderDeliverable(codeResult, steps, userInput, outputMode);
 
             // Step 5: Tester
-            const testResult = await this._executeStep('tester', userInput, steps, logs, customModels.tester, outputMode);
+            let testResult = await this._executeStep('tester', userInput, steps, logs, customModels.tester, outputMode);
 
             // Step 6: Critic
-            const criticResult = await this._executeStep('critic', userInput, steps, logs, customModels.critic, outputMode);
+            let criticResult = await this._executeStep('critic', userInput, steps, logs, customModels.critic, outputMode);
+
+            const gateResult = await this._runQualityGate({
+                userInput,
+                outputMode,
+                steps,
+                logs,
+                customModels,
+                codeResult,
+                testResult,
+                criticResult,
+            });
+            codeResult = gateResult.codeResult;
+            testResult = gateResult.testResult;
+            criticResult = gateResult.criticResult;
 
             const previewPath = savePreviewArtifact(runId, codeResult.output, outputMode);
             const artifacts = collectArtifacts(steps, previewPath, outputMode);
@@ -231,6 +246,60 @@ export default class Pipeline {
             latestStep.success = true;
             latestStep.error = null;
         }
+    }
+
+    async _runQualityGate({ userInput, outputMode, steps, logs, customModels, codeResult, testResult, criticResult }) {
+        const minScore = config.qualityGate?.minScore || 8.5;
+        const maxRepairAttempts = config.qualityGate?.maxRepairAttempts || 0;
+        let quality = evaluateQuality(criticResult.output, outputMode);
+        let repairAttempt = 0;
+
+        while (repairAttempt < maxRepairAttempts && this._shouldRepairForQuality(quality, minScore)) {
+            repairAttempt += 1;
+            const repairInput = this._buildRepairPrompt(userInput, steps, outputMode, quality, minScore, repairAttempt);
+
+            this._broadcast('pipeline:quality-repair', {
+                attempt: repairAttempt,
+                outputMode,
+                score: quality.score,
+                recommendation: quality.recommendation,
+                minScore,
+            });
+
+            codeResult = await this._executeStep('coder', repairInput, steps, logs, customModels.coder, outputMode);
+            this._ensureCoderDeliverable(codeResult, steps, repairInput, outputMode);
+            testResult = await this._executeStep('tester', repairInput, steps, logs, customModels.tester, outputMode);
+            criticResult = await this._executeStep('critic', repairInput, steps, logs, customModels.critic, outputMode);
+            quality = evaluateQuality(criticResult.output, outputMode);
+        }
+
+        return { codeResult, testResult, criticResult };
+    }
+
+    _shouldRepairForQuality(quality, minScore) {
+        return quality.score < minScore || quality.recommendation === 'REJECTED' || quality.recommendation === 'NEEDS_REVISION';
+    }
+
+    _buildRepairPrompt(userInput, steps, outputMode, quality, minScore, repairAttempt) {
+        const testerOutput = [...steps].reverse().find((step) => step.agent === 'tester')?.output || 'No tester feedback.';
+        const criticOutput = [...steps].reverse().find((step) => step.agent === 'critic')?.output || 'No critic feedback.';
+
+        return `${userInput}
+
+QUALITY GATE REPAIR REQUEST
+- Output mode: ${outputMode}
+- Current quality score: ${quality.score}/10
+- Required minimum score: ${minScore}/10
+- Repair attempt: ${repairAttempt}
+
+You must improve the deliverable so it can pass the quality gate.
+Prioritize the issues below and return a stronger final artifact, not analysis-only text.
+
+Latest tester feedback:
+${testerOutput}
+
+Latest critic feedback:
+${criticOutput}`;
     }
 
     _composeFinalOutput(steps) {

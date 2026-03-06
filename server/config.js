@@ -176,6 +176,11 @@ export default {
     memoryDir: './data/memory',
   },
 
+  qualityGate: {
+    minScore: 8.5,
+    maxRepairAttempts: 1,
+  },
+
   // 출력 모드 설정
   outputModes,
 };
