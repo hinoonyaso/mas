@@ -34,6 +34,7 @@ export default function App() {
     const [runHistory, setRunHistory] = useState([]);
     const [customModels, setCustomModels] = useState({});
     const [artifacts, setArtifacts] = useState([]);
+    const [outputMode, setOutputMode] = useState('website');
     const [authMode, setAuthMode] = useState('login');
     const [authError, setAuthError] = useState('');
     const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
@@ -181,10 +182,10 @@ export default function App() {
     }, [closeSocket]);
 
     const handleSend = useCallback(async (input) => {
-        setMessages((prev) => [...prev, { type: 'user', content: input }]);
+        setMessages((prev) => [...prev, { type: 'user', content: `[${outputMode.toUpperCase()}] ${input}` }]);
         setTab('run');
         try {
-            await runPipeline(input, customModels);
+            await runPipeline(input, customModels, outputMode);
         } catch (err) {
             setIsRunning(false);
             setMessages((prev) => [
@@ -192,7 +193,7 @@ export default function App() {
                 { type: 'system', agent: 'Error', content: `요청 실패: ${err.message}` },
             ]);
         }
-    }, [customModels]);
+    }, [customModels, outputMode]);
 
     if (!isAuthenticated) {
         return (
@@ -295,6 +296,8 @@ export default function App() {
                                 messages={messages}
                                 onSend={handleSend}
                                 isRunning={isRunning}
+                                outputMode={outputMode}
+                                onModeChange={setOutputMode}
                             />
                         </div>
                     )}

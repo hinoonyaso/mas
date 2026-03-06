@@ -65,12 +65,21 @@ function estimateCost(logs) {
     return Math.round(cost * 10000) / 10000; // 4 decimal places
 }
 
-export function evaluateQuality(criticOutput) {
+export function evaluateQuality(criticOutput, outputMode = 'website') {
     if (!criticOutput) return { score: 0, recommendation: 'N/A' };
 
     // 스코어 추출 시도
     const scoreMatch = criticOutput.match(/Score:\s*(\d+(?:\.\d+)?)\s*\/\s*10/i);
-    const score = scoreMatch ? parseFloat(scoreMatch[1]) : 7;
+
+    // 모드별 기본 점수 (스코어 추출 실패 시)
+    const defaultScores = {
+        website: 7,
+        docx: 7.5,
+        sheet: 7.5,
+        slide: 7,
+        deep_research: 6,
+    };
+    const score = scoreMatch ? parseFloat(scoreMatch[1]) : (defaultScores[outputMode] || 7);
 
     // 추천 결과 추출
     let recommendation = 'UNKNOWN';
@@ -78,5 +87,5 @@ export function evaluateQuality(criticOutput) {
     else if (/NEEDS_REVISION/i.test(criticOutput)) recommendation = 'NEEDS_REVISION';
     else if (/REJECTED/i.test(criticOutput)) recommendation = 'REJECTED';
 
-    return { score, recommendation };
+    return { score, recommendation, outputMode };
 }

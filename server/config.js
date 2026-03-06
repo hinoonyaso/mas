@@ -39,4 +39,13 @@ export default {
     maxTokens: 8000,
     memoryDir: './data/memory',
   },
+
+  // 출력 모드 설정
+  outputModes: {
+    website:       { skipAsset: false, researchDepth: 'normal' },
+    docx:          { skipAsset: true,  researchDepth: 'normal' },
+    sheet:         { skipAsset: true,  researchDepth: 'normal' },
+    slide:         { skipAsset: false, researchDepth: 'normal' },
+    deep_research: { skipAsset: true,  researchDepth: 'deep'   },
+  },
 };

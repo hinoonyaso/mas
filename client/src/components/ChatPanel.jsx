@@ -1,6 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 
-export default function ChatPanel({ messages, onSend, isRunning }) {
+const OUTPUT_MODES = [
+    { key: 'website', label: 'Website', icon: '🌐', desc: '웹 페이지 생성' },
+    { key: 'docx', label: 'Docx', icon: '📄', desc: '문서 생성' },
+    { key: 'sheet', label: 'Sheet', icon: '📊', desc: '스프레드시트 생성' },
+    { key: 'slide', label: 'Slide', icon: '📽️', desc: '프레젠테이션 생성' },
+    { key: 'deep_research', label: 'Deep Research', icon: '🔬', desc: '심층 분석 리서치' },
+];
+
+export default function ChatPanel({ messages, onSend, isRunning, outputMode, onModeChange }) {
     const [input, setInput] = useState('');
     const messagesEndRef = useRef(null);
     const textareaRef = useRef(null);
@@ -28,6 +36,8 @@ export default function ChatPanel({ messages, onSend, isRunning }) {
         e.target.style.height = '48px';
         e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
     };
+
+    const currentMode = OUTPUT_MODES.find((m) => m.key === outputMode) || OUTPUT_MODES[0];
 
     return (
         <div className="chat-area">
@@ -64,13 +74,29 @@ export default function ChatPanel({ messages, onSend, isRunning }) {
             </div>
 
             <div className="input-area">
+                {/* 출력 모드 선택 바 */}
+                <div className="output-mode-bar">
+                    {OUTPUT_MODES.map((mode) => (
+                        <button
+                            key={mode.key}
+                            className={`mode-btn ${outputMode === mode.key ? 'active' : ''}`}
+                            onClick={() => onModeChange(mode.key)}
+                            disabled={isRunning}
+                            title={mode.desc}
+                        >
+                            <span className="mode-icon">{mode.icon}</span>
+                            <span className="mode-label">{mode.label}</span>
+                        </button>
+                    ))}
+                </div>
+
                 <div className="input-wrapper">
                     <textarea
                         ref={textareaRef}
                         value={input}
                         onChange={(e) => { setInput(e.target.value); autoResize(e); }}
                         onKeyDown={handleKeyDown}
-                        placeholder="요청을 입력하세요... (예: 로그인 시스템을 만들어줘)"
+                        placeholder={currentMode.desc + '... (예: ' + _getPlaceholder(outputMode) + ')'}
                         rows={1}
                         disabled={isRunning}
                     />
@@ -82,11 +108,22 @@ export default function ChatPanel({ messages, onSend, isRunning }) {
                         {isRunning ? (
                             <><div className="spinner" /> 실행 중</>
                         ) : (
-                            <>🚀 실행</>
+                            <>{currentMode.icon} 생성</>
                         )}
                     </button>
                 </div>
             </div>
         </div>
     );
+}
+
+function _getPlaceholder(mode) {
+    const placeholders = {
+        website: '로그인 페이지 만들어줘',
+        docx: '프로젝트 기획안 작성해줘',
+        sheet: '월별 매출 데이터 표 만들어줘',
+        slide: 'AI 트렌드 프레젠테이션 만들어줘',
+        deep_research: '인공지능의 미래에 대해 분석해줘',
+    };
+    return placeholders[mode] || placeholders.website;
 }

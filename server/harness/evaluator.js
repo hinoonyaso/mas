@@ -9,24 +9,35 @@ export default class Evaluator {
      * 전체 파이프라인 실행 결과를 평가
      */
     evaluate(runResult) {
-        const { logs, finalOutput, criticOutput } = runResult;
+        const { logs, finalOutput, criticOutput, outputMode = 'website' } = runResult;
 
         const pipelineMetrics = calculatePipelineMetrics(logs);
-        const qualityAssessment = evaluateQuality(criticOutput);
+        const qualityAssessment = evaluateQuality(criticOutput, outputMode);
 
         const evaluation = {
             timestamp: new Date().toISOString(),
+            outputMode,
             pipelineMetrics,
             quality: qualityAssessment,
-            summary: this._generateSummary(pipelineMetrics, qualityAssessment),
+            summary: this._generateSummary(pipelineMetrics, qualityAssessment, outputMode),
         };
 
         this.evaluations.push(evaluation);
         return evaluation;
     }
 
-    _generateSummary(metrics, quality) {
+    _generateSummary(metrics, quality, outputMode = 'website') {
         const parts = [];
+
+        const modeLabels = {
+            website: '🌐 Website',
+            docx: '📄 Document',
+            sheet: '📊 Spreadsheet',
+            slide: '📽️ Presentation',
+            deep_research: '🔬 Deep Research',
+        };
+
+        parts.push(`Mode: ${modeLabels[outputMode] || outputMode}`);
 
         // 성공률
         parts.push(`Success Rate: ${metrics.successRate.toFixed(0)}%`);

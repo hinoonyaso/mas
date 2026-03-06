@@ -96,10 +96,10 @@ export async function apiCall(endpoint, options = {}) {
     return res.json();
 }
 
-export function runPipeline(input, models = {}) {
+export function runPipeline(input, models = {}, outputMode = 'website') {
     return apiCall('/run', {
         method: 'POST',
-        body: JSON.stringify({ input, models }),
+        body: JSON.stringify({ input, models, outputMode }),
     });
 }
 

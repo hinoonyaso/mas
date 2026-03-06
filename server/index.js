@@ -122,14 +122,17 @@ app.get('/api/status', authenticateRequest, (req, res) => {
 
 // 파이프라인 실행
 app.post('/api/run', authenticateRequest, async (req, res) => {
-    const { input, models } = req.body;
+    const { input, models, outputMode } = req.body;
 
     if (!input || typeof input !== 'string') {
         return res.status(400).json({ error: 'input is required' });
     }
 
+    const validModes = ['website', 'docx', 'sheet', 'slide', 'deep_research'];
+    const mode = validModes.includes(outputMode) ? outputMode : 'website';
+
     try {
-        const result = await pipeline.run(input, models || {});
+        const result = await pipeline.run(input, models || {}, mode);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });

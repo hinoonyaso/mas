@@ -35,7 +35,7 @@ export default class Pipeline {
     /**
      * 전체 파이프라인 실행
      */
-    async run(userInput, customModels = {}) {
+    async run(userInput, customModels = {}, outputMode = 'website') {
         if (this.isRunning) {
             throw new Error('Pipeline is already running');
         }
@@ -46,35 +46,60 @@ export default class Pipeline {
         const steps = [];
         const logs = [];
 
+        // 출력 모드 설정 로드
+        const modeConfig = config.outputModes[outputMode] || config.outputModes.website;
+
         this.contextEngine.resetSession();
 
         this._broadcast('pipeline:start', {
             runId,
             input: userInput,
+            outputMode,
             agents: Object.keys(this.agents),
         });
 
         try {
             // Step 1: Planner
-            const planResult = await this._executeStep('planner', userInput, steps, logs, customModels.planner);
+            const planResult = await this._executeStep('planner', userInput, steps, logs, customModels.planner, outputMode);
             if (!planResult.success) throw new Error('Planner failed: ' + planResult.error);
 
             // Step 2: Researcher
-            const researchResult = await this._executeStep('researcher', userInput, steps, logs, customModels.researcher);
+            const researchResult = await this._executeStep('researcher', userInput, steps, logs, customModels.researcher, outputMode);
 
-            // Step 3: Asset
-            const assetResult = await this._executeStep('asset', userInput, steps, logs, customModels.asset);
+            // Step 3: Asset (모드에 따라 스킵 가능)
+            let assetResult = null;
+            if (!modeConfig.skipAsset) {
+                assetResult = await this._executeStep('asset', userInput, steps, logs, customModels.asset, outputMode);
+            } else {
+                // Asset 스킵 시 로그만 추가
+                const skipStep = {
+                    agent: 'asset',
+                    role: 'Media Asset Generation',
+                    output: `Asset generation skipped for ${outputMode} output mode.`,
+                    success: true,
+                    error: null,
+                };
+                steps.push(skipStep);
+                this._broadcast('agent:complete', {
+                    agent: 'asset',
+                    role: 'Media Asset Generation',
+                    success: true,
+                    metrics: {},
+                    output: skipStep.output,
+                    skipped: true,
+                });
+            }
 
             // Step 4: Coder
-            const codeResult = await this._executeStep('coder', userInput, steps, logs, customModels.coder);
+            const codeResult = await this._executeStep('coder', userInput, steps, logs, customModels.coder, outputMode);
 
             // Step 5: Tester
-            const testResult = await this._executeStep('tester', userInput, steps, logs, customModels.tester);
+            const testResult = await this._executeStep('tester', userInput, steps, logs, customModels.tester, outputMode);
 
             // Step 6: Critic
-            const criticResult = await this._executeStep('critic', userInput, steps, logs, customModels.critic);
+            const criticResult = await this._executeStep('critic', userInput, steps, logs, customModels.critic, outputMode);
 
-            const previewPath = savePreviewArtifact(runId, codeResult.output);
+            const previewPath = savePreviewArtifact(runId, codeResult.output, outputMode);
             const artifacts = collectArtifacts(steps, previewPath);
 
             // 평가
@@ -82,11 +107,13 @@ export default class Pipeline {
                 logs,
                 finalOutput: criticResult.output,
                 criticOutput: criticResult.output,
+                outputMode,
             });
 
             const runResult = {
                 runId,
                 input: userInput,
+                outputMode,
                 steps,
                 logs,
                 evaluation,
@@ -100,6 +127,7 @@ export default class Pipeline {
             // 장기 메모리에 저장
             this.contextEngine.saveRunToLongTerm(runId, {
                 input: userInput,
+                outputMode,
                 status: 'completed',
                 evaluation: evaluation.summary,
                 finalOutput: runResult.finalOutput,
@@ -118,6 +146,7 @@ export default class Pipeline {
             const runResult = {
                 runId,
                 input: userInput,
+                outputMode,
                 steps,
                 logs,
                 totalTime: Date.now() - startTime,
@@ -131,7 +160,7 @@ export default class Pipeline {
         }
     }
 
-    async _executeStep(agentName, userInput, steps, logs, preferredModel) {
+    async _executeStep(agentName, userInput, steps, logs, preferredModel, outputMode = 'website') {
         const agent = this.agents[agentName];
 
         // Use user-selected model or fallback to config default
@@ -143,10 +172,11 @@ export default class Pipeline {
             provider: agent.providerName,
         });
 
-        // 컨텍스트 구성
+        // 컨텍스트 구성 (outputMode 포함)
         const context = this.contextEngine.buildContext(agentName, {
             userInput,
             previousSteps: steps,
+            outputMode,
         });
 
         // 실행
@@ -195,6 +225,7 @@ export default class Pipeline {
             availableProviders: this.llmProvider.getAvailableProviders(),
             agentConfig: config.agentLLMMap,
             models: config.models,
+            outputModes: Object.keys(config.outputModes),
         };
     }
 
