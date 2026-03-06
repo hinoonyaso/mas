@@ -11,19 +11,21 @@ export default class BaseAgent {
         this.logs = [];
     }
 
-    async execute(input, context = {}, model = null) {
+    async execute(input, context = {}, executionOptions = {}) {
         const startTime = Date.now();
         const log = {
             id: uuidv4(),
             agent: this.name,
             role: this.role,
-            provider: this.providerName,
+            provider: executionOptions.providerName || this.providerName,
             startTime: new Date().toISOString(),
             status: 'running',
         };
 
         try {
             const outputMode = context.outputMode || 'website';
+            const providerName = executionOptions.providerName || this.providerName;
+            const model = executionOptions.model || null;
 
             // 출력 모드에 맞는 시스템 프롬프트 생성
             const systemPrompt = this.getSystemPromptForMode(outputMode);
@@ -31,11 +33,11 @@ export default class BaseAgent {
             // 컨텍스트와 입력을 결합하여 프롬프트 생성
             const prompt = this.buildPrompt(input, context, outputMode);
 
-            const result = await this.llmProvider.generate(this.providerName, prompt, {
+            const result = await this.llmProvider.generate(providerName, prompt, {
                 systemPrompt,
                 agentName: this.name,
                 temperature: this.getTemperatureForMode(outputMode),
-                model: model,
+                model,
             });
 
             log.status = 'completed';
@@ -83,6 +85,15 @@ export default class BaseAgent {
 
         if (outputMode && outputMode !== 'website') {
             prompt += `## Output Mode\nTarget output format: **${outputMode}**\n\n`;
+        }
+
+        if (context.modeConfig) {
+            prompt += '## Mode Strategy\n';
+            prompt += `Label: ${context.modeConfig.label}\n`;
+            prompt += `Research Depth: ${context.modeConfig.researchDepth}\n`;
+            prompt += `Prompt Focus: ${context.modeConfig.promptFocus}\n`;
+            prompt += `Context Priority: ${context.modeConfig.contextPriority}\n`;
+            prompt += `Harness Focus: ${context.modeConfig.harnessFocus}\n\n`;
         }
 
         prompt += `## Current Task\n${input}\n`;

@@ -29,9 +29,17 @@ function extractPathsFromText(text) {
     return [...matches];
 }
 
-export function collectArtifacts(steps, previewPath) {
+export function collectArtifacts(steps, previewPath, outputMode = 'website') {
     const artifacts = [];
     const seen = new Set();
+    const collectibleAgents = new Set(['asset', 'coder']);
+    const previewLabels = {
+        website: 'Website preview',
+        docx: 'Document preview',
+        sheet: 'Spreadsheet preview',
+        slide: 'Presentation preview',
+        deep_research: 'Research report preview',
+    };
 
     if (previewPath) {
         seen.add(previewPath);
@@ -39,11 +47,12 @@ export function collectArtifacts(steps, previewPath) {
             path: previewPath,
             type: detectArtifactType(previewPath),
             sourceAgent: 'coder',
-            label: 'Rendered preview',
+            label: previewLabels[outputMode] || 'Rendered preview',
         });
     }
 
     for (const step of steps || []) {
+        if (!collectibleAgents.has(step.agent)) continue;
         const paths = extractPathsFromText(step.output);
         for (const filePath of paths) {
             if (seen.has(filePath)) continue;

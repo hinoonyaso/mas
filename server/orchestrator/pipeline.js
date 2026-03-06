@@ -9,7 +9,7 @@ import AssetAgent from '../agents/asset.js';
 import CoderAgent from '../agents/coder.js';
 import TesterAgent from '../agents/tester.js';
 import CriticAgent from '../agents/critic.js';
-import { savePreviewArtifact } from '../artifacts/preview.js';
+import { ensureRenderableOutput, savePreviewArtifact } from '../artifacts/preview.js';
 import { collectArtifacts } from '../artifacts/manifest.js';
 
 export default class Pipeline {
@@ -92,6 +92,7 @@ export default class Pipeline {
 
             // Step 4: Coder
             const codeResult = await this._executeStep('coder', userInput, steps, logs, customModels.coder, outputMode);
+            this._ensureCoderDeliverable(codeResult, steps, userInput, outputMode);
 
             // Step 5: Tester
             const testResult = await this._executeStep('tester', userInput, steps, logs, customModels.tester, outputMode);
@@ -100,7 +101,7 @@ export default class Pipeline {
             const criticResult = await this._executeStep('critic', userInput, steps, logs, customModels.critic, outputMode);
 
             const previewPath = savePreviewArtifact(runId, codeResult.output, outputMode);
-            const artifacts = collectArtifacts(steps, previewPath);
+            const artifacts = collectArtifacts(steps, previewPath, outputMode);
 
             // 평가
             const evaluation = this.evaluator.evaluate({
@@ -162,14 +163,14 @@ export default class Pipeline {
 
     async _executeStep(agentName, userInput, steps, logs, preferredModel, outputMode = 'website') {
         const agent = this.agents[agentName];
-
-        // Use user-selected model or fallback to config default
-        const modelToUse = preferredModel || config.agentModelMap[agentName];
+        const executionOptions = this._resolveExecutionOptions(agentName, preferredModel, outputMode);
 
         this._broadcast('agent:start', {
             agent: agentName,
             role: agent.role,
-            provider: agent.providerName,
+            provider: executionOptions.providerName,
+            model: executionOptions.model || 'default',
+            outputMode,
         });
 
         // 컨텍스트 구성 (outputMode 포함)
@@ -180,7 +181,7 @@ export default class Pipeline {
         });
 
         // 실행
-        const result = await agent.execute(userInput, context, modelToUse);
+        const result = await agent.execute(userInput, context, executionOptions);
 
         // 결과 저장
         const stepData = {
@@ -208,6 +209,30 @@ export default class Pipeline {
         return result;
     }
 
+    _resolveExecutionOptions(agentName, preferredModel, outputMode = 'website') {
+        const modeConfig = config.outputModes[outputMode] || config.outputModes.website;
+        return {
+            providerName: modeConfig.providerMap?.[agentName] || config.agentLLMMap[agentName],
+            model: preferredModel || modeConfig.modelMap?.[agentName] || config.agentModelMap[agentName] || '',
+        };
+    }
+
+    _ensureCoderDeliverable(codeResult, steps, userInput, outputMode) {
+        const safeOutput = ensureRenderableOutput(codeResult.output, {
+            userInput,
+            previousSteps: steps,
+            outputMode,
+        });
+
+        codeResult.output = safeOutput;
+        const latestStep = steps[steps.length - 1];
+        if (latestStep?.agent === 'coder') {
+            latestStep.output = safeOutput;
+            latestStep.success = true;
+            latestStep.error = null;
+        }
+    }
+
     _composeFinalOutput(steps) {
         return steps
             .filter((s) => s.success && s.output)
@@ -224,8 +249,9 @@ export default class Pipeline {
             isRunning: this.isRunning,
             availableProviders: this.llmProvider.getAvailableProviders(),
             agentConfig: config.agentLLMMap,
-            models: config.models,
+            agentModels: config.agentModelMap,
             outputModes: Object.keys(config.outputModes),
+            modeProfiles: config.outputModes,
         };
     }
 

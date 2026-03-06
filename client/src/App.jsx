@@ -5,6 +5,7 @@ import {
     fetchCurrentUser,
     getAuthToken,
     getHistory,
+    getStatus,
     login,
     register,
     runPipeline,
@@ -17,11 +18,21 @@ import ChatPanel from './components/ChatPanel.jsx';
 import AgentLog from './components/AgentLog.jsx';
 import PipelineView from './components/PipelineView.jsx';
 
+const APP_LOGO = '/assets/logo.svg';
+
 const TABS = [
     { key: 'run', label: '실행', icon: '🚀' },
     { key: 'dashboard', label: '대시보드', icon: '📊' },
     { key: 'eval', label: '평가', icon: '⚖️' },
 ];
+
+const OUTPUT_MODE_LABELS = {
+    website: 'WEBSITE',
+    docx: 'DOCX',
+    sheet: 'SHEET',
+    slide: 'SLIDE',
+    deep_research: 'DEEP RESEARCH',
+};
 
 export default function App() {
     const [tab, setTab] = useState('run');
@@ -39,6 +50,7 @@ export default function App() {
     const [authError, setAuthError] = useState('');
     const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
+    const [systemStatus, setSystemStatus] = useState(null);
     const wsRef = useRef(null);
 
     const isAuthenticated = Boolean(currentUser);
@@ -149,6 +161,11 @@ export default function App() {
         getHistory().then(setRunHistory).catch(() => { });
     }, [isAuthenticated, isRunning]);
 
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        getStatus().then(setSystemStatus).catch(() => { });
+    }, [isAuthenticated]);
+
     const handleAuthSubmit = useCallback(async (payload) => {
         setIsAuthSubmitting(true);
         setAuthError('');
@@ -178,11 +195,13 @@ export default function App() {
         setEvaluation(null);
         setRunHistory([]);
         setCustomModels({});
+        setSystemStatus(null);
         setAuthMode('login');
     }, [closeSocket]);
 
     const handleSend = useCallback(async (input) => {
-        setMessages((prev) => [...prev, { type: 'user', content: `[${outputMode.toUpperCase()}] ${input}` }]);
+        const label = OUTPUT_MODE_LABELS[outputMode] || outputMode.toUpperCase();
+        setMessages((prev) => [...prev, { type: 'user', content: `[${label}] ${input}` }]);
         setTab('run');
         try {
             await runPipeline(input, customModels, outputMode);
@@ -212,7 +231,7 @@ export default function App() {
             <aside className="sidebar">
                 <div className="sidebar-header">
                     <div className="sidebar-logo">
-                        <div className="logo-icon">⚡</div>
+                        <img className="logo-icon" src={APP_LOGO} alt="MAS logo" />
                         <div>
                             <h1>MAS</h1>
                             <div className="subtitle">Multi-Agent Orchestration</div>
@@ -275,11 +294,13 @@ export default function App() {
                         <div className="pipeline-container">
                             <PipelineView
                                 agentStates={agentStates}
+                                outputMode={outputMode}
+                                modeProfiles={systemStatus?.modeProfiles || null}
                                 customModels={customModels}
                                 onModelChange={(agentKey, model) => setCustomModels((prev) => ({ ...prev, [agentKey]: model }))}
                             />
 
-                            <ArtifactPanel artifacts={artifacts} />
+                            <ArtifactPanel artifacts={artifacts} outputMode={outputMode} />
 
                             {agentLogs.length > 0 && (
                                 <div>
@@ -298,6 +319,7 @@ export default function App() {
                                 isRunning={isRunning}
                                 outputMode={outputMode}
                                 onModeChange={setOutputMode}
+                                modeProfile={systemStatus?.modeProfiles?.[outputMode] || null}
                             />
                         </div>
                     )}

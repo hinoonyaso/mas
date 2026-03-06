@@ -8,7 +8,7 @@ const OUTPUT_MODES = [
     { key: 'deep_research', label: 'Deep Research', icon: '🔬', desc: '심층 분석 리서치' },
 ];
 
-export default function ChatPanel({ messages, onSend, isRunning, outputMode, onModeChange }) {
+export default function ChatPanel({ messages, onSend, isRunning, outputMode, onModeChange, modeProfile }) {
     const [input, setInput] = useState('');
     const messagesEndRef = useRef(null);
     const textareaRef = useRef(null);
@@ -89,6 +89,21 @@ export default function ChatPanel({ messages, onSend, isRunning, outputMode, onM
                         </button>
                     ))}
                 </div>
+
+                {modeProfile && (
+                    <div className="mode-strategy-card">
+                        <div className="mode-strategy-title">
+                            {currentMode.icon} {modeProfile.label}
+                        </div>
+                        <div className="mode-strategy-desc">{modeProfile.description}</div>
+                        <div className="mode-strategy-meta">
+                            <span>LLM Focus: {modeProfile.promptFocus}</span>
+                            <span>Context: {modeProfile.contextPriority}</span>
+                            <span>Harness: {modeProfile.harnessFocus}</span>
+                            <span>Research Depth: {modeProfile.researchDepth}</span>
+                        </div>
+                    </div>
+                )}
 
                 <div className="input-wrapper">
                     <textarea

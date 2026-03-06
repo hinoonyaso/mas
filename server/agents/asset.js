@@ -59,9 +59,7 @@ Output EXACTLY AND ONLY this JSON:
             ensureArtifactFolders();
             const publicDir = path.resolve(process.cwd(), '../client/public');
             const assetsDir = path.join(publicDir, 'assets');
-
             const filepath = path.join(assetsDir, filename);
-            const file = fs.createWriteStream(filepath);
 
             console.log(`[AssetAgent] Downloading image from ${url} to ${filepath}`);
 
@@ -69,27 +67,107 @@ Output EXACTLY AND ONLY this JSON:
                 if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
                     // Handle redirect
                     https.get(response.headers.location, (res) => {
-                        res.pipe(file);
-                        file.on('finish', () => {
-                            file.close();
-                            resolve(`/assets/${filename}`);
-                        });
+                        this._collectImageResponse(res, filepath, filename, resolve, reject);
                     }).on('error', (err) => {
-                        fs.unlink(filepath, () => { });
                         reject(err);
                     });
                 } else {
-                    response.pipe(file);
-                    file.on('finish', () => {
-                        file.close();
-                        resolve(`/assets/${filename}`);
-                    });
+                    this._collectImageResponse(response, filepath, filename, resolve, reject);
                 }
             }).on('error', (err) => {
-                fs.unlink(filepath, () => { });
                 reject(err);
             });
         });
+    }
+
+    _collectImageResponse(response, filepath, filename, resolve, reject) {
+        const chunks = [];
+
+        response.on('data', (chunk) => {
+            chunks.push(chunk);
+        });
+
+        response.on('end', () => {
+            try {
+                const buffer = Buffer.concat(chunks);
+                const contentType = String(response.headers['content-type'] || '').toLowerCase();
+
+                if (!this._isValidImagePayload(buffer, contentType)) {
+                    reject(new Error(`Invalid image response (status=${response.statusCode}, content-type=${contentType || 'unknown'})`));
+                    return;
+                }
+
+                fs.writeFileSync(filepath, buffer);
+                resolve(`/assets/${filename}`);
+            } catch (error) {
+                reject(error);
+            }
+        });
+
+        response.on('error', reject);
+    }
+
+    _isValidImagePayload(buffer, contentType) {
+        if (!buffer || buffer.length < 32) return false;
+        if (contentType && !contentType.startsWith('image/')) return false;
+
+        const png = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+        const jpg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+        const gif = buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46;
+        const webp = buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+        const svg = buffer.toString('utf8', 0, Math.min(buffer.length, 256)).includes('<svg');
+
+        return png || jpg || gif || webp || svg;
+    }
+
+    createFallbackAsset(prompt, filename) {
+        ensureArtifactFolders();
+        const publicDir = path.resolve(process.cwd(), '../client/public');
+        const assetsDir = path.join(publicDir, 'assets');
+        const baseName = path.parse(filename).name || 'generated-asset';
+        const fallbackFilename = `${baseName}.svg`;
+        const filepath = path.join(assetsDir, fallbackFilename);
+        const title = this._escapeXml(baseName.replace(/[-_]+/g, ' '));
+        const subtitle = this._escapeXml(prompt.slice(0, 140));
+
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">${title}</title>
+  <desc id="desc">${subtitle}</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#020617" />
+      <stop offset="55%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#0f766e" />
+    </linearGradient>
+    <linearGradient id="orb" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#818cf8" stop-opacity="0.25" />
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)" />
+  <circle cx="1260" cy="160" r="220" fill="url(#orb)" opacity="0.85" />
+  <circle cx="260" cy="780" r="280" fill="#0891b2" opacity="0.18" />
+  <rect x="120" y="120" width="1360" height="660" rx="36" fill="rgba(15,23,42,0.52)" stroke="rgba(148,163,184,0.35)" />
+  <text x="180" y="260" fill="#e2e8f0" font-size="64" font-family="Inter, Arial, sans-serif" font-weight="700">${title}</text>
+  <text x="180" y="340" fill="#7dd3fc" font-size="26" font-family="Inter, Arial, sans-serif">Fallback preview asset generated locally</text>
+  <foreignObject x="180" y="400" width="1100" height="220">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="color:#cbd5e1;font:24px Inter, Arial, sans-serif;line-height:1.55;">
+      ${subtitle}
+    </div>
+  </foreignObject>
+</svg>`;
+
+        fs.writeFileSync(filepath, svg, 'utf8');
+        return `/assets/${fallbackFilename}`;
+    }
+
+    _escapeXml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
     }
 
     // Override the execute method to intercept the LLM output and perform the download
@@ -111,10 +189,10 @@ Output EXACTLY AND ONLY this JSON:
                         log: result.log
                     };
                 } catch (err) {
+                    const fallbackPath = this.createFallbackAsset(decision.prompt, decision.filename);
                     return {
-                        success: false,
-                        error: `Failed to download image: ${err.message}`,
-                        output: `Failed to download image: ${err.message}`,
+                        success: true,
+                        output: `Image download failed, so a local fallback visual was created instead.\n\n**Prompt Used**: ${decision.prompt}\n**Fallback File Saved At**: \`${fallbackPath}\`\n**Download Error**: ${err.message}\n\n*Coder Agent: Please use this fallback file path (\`${fallbackPath}\`) in your HTML/CSS implementation to apply the generated image.*`,
                         log: result.log
                     };
                 }

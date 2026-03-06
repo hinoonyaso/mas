@@ -1,4 +1,5 @@
 import MemoryStore from './memory.js';
+import config from '../config.js';
 
 export default class ContextEngine {
     constructor() {
@@ -9,10 +10,18 @@ export default class ContextEngine {
      * 에이전트 실행 전 최적화된 컨텍스트 구성
      */
     buildContext(agentName, { userInput, previousSteps = [], runId, outputMode = 'website' }) {
+        const modeConfig = config.outputModes[outputMode] || config.outputModes.website;
         const context = {
             previousSteps: this._selectRelevantSteps(agentName, previousSteps, outputMode),
             memory: this._getRelevantMemory(agentName, userInput),
             outputMode,
+            modeConfig: {
+                label: modeConfig.label,
+                researchDepth: modeConfig.researchDepth,
+                promptFocus: modeConfig.promptFocus,
+                contextPriority: modeConfig.contextPriority,
+                harnessFocus: modeConfig.harnessFocus,
+            },
         };
 
         return context;

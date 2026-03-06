@@ -17,11 +17,16 @@ const AGENT_MODELS = {
     codex: ['', 'gpt-5.4', 'gpt-5.3-codex', 'gpt-4.5-preview', 'o3-mini', 'o1', 'gpt-4o', 'gpt-4o-mini']
 };
 
-export default function PipelineView({ agentStates, logs, onAgentClick, customModels = {}, onModelChange }) {
+export default function PipelineView({ agentStates, logs, onAgentClick, customModels = {}, onModelChange, outputMode = 'website', modeProfiles = null }) {
+    const modeProfile = modeProfiles?.[outputMode] || null;
+
     return (
         <div className="pipeline-agents">
             {AGENTS.map((agent, i) => {
                 const state = agentStates[agent.key] || 'idle';
+                const provider = modeProfile?.providerMap?.[agent.key] || agent.model;
+                const recommendedModel = modeProfile?.modelMap?.[agent.key] || '';
+                const modelOptions = AGENT_MODELS[provider] || AGENT_MODELS[agent.model] || [''];
                 return (
                     <div key={agent.key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div
@@ -35,10 +40,13 @@ export default function PipelineView({ agentStates, logs, onAgentClick, customMo
                             <div className="agent-name" style={{ color: state === 'completed' ? 'var(--accent-emerald)' : agent.color }}>
                                 {agent.name}
                             </div>
+                            <div style={{ marginTop: '6px', fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                {provider}
+                            </div>
                             <div className="agent-model" style={{ marginTop: '8px' }}>
                                 <select
                                     className="model-select"
-                                    value={customModels[agent.key] || AGENT_MODELS[agent.model][0]}
+                                    value={customModels[agent.key] || recommendedModel}
                                     onChange={(e) => onModelChange?.(agent.key, e.target.value)}
                                     disabled={state === 'active' || state === 'completed'}
                                     style={{
@@ -53,7 +61,7 @@ export default function PipelineView({ agentStates, logs, onAgentClick, customMo
                                         cursor: 'pointer'
                                     }}
                                 >
-                                    {AGENT_MODELS[agent.model].map(m => (
+                                    {modelOptions.map(m => (
                                         <option key={m || 'default'} value={m}>{m || 'default CLI model'}</option>
                                     ))}
                                 </select>
