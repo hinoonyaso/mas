@@ -48,6 +48,7 @@ export default class Pipeline {
         const steps = [];
         const logs = [];
         let artifactContract = null;
+        let assetPlan = null;
 
         // 출력 모드 설정 로드
         const modeConfig = config.outputModes[outputMode] || config.outputModes.website;
@@ -66,6 +67,10 @@ export default class Pipeline {
             const planResult = await this._executeStep('planner', userInput, steps, logs, customModels.planner, outputMode);
             if (!planResult.success) throw new Error('Planner failed: ' + planResult.error);
             artifactContract = this._resolveArtifactContract(planResult.output, outputMode, userInput);
+            assetPlan = this._extractAssetPlan(planResult.output);
+            if (assetPlan && artifactContract) {
+                artifactContract.assetPlan = assetPlan;
+            }
 
             // Step 2: Researcher
             const researchResult = await this._executeStep('researcher', userInput, steps, logs, customModels.researcher, outputMode);
@@ -176,6 +181,14 @@ export default class Pipeline {
                 timestamp: new Date().toISOString(),
             });
 
+            // 적응형 정책 업데이트
+            this.contextEngine.memory.recordRunOutcome({
+                outputMode,
+                steps,
+                evaluation,
+                providerMap: modeConfig.providerMap,
+            });
+
             this._broadcast('pipeline:complete', runResult);
             this.isRunning = false;
             return runResult;
@@ -256,9 +269,12 @@ export default class Pipeline {
 
     _resolveExecutionOptions(agentName, preferredModel, outputMode = 'website') {
         const modeConfig = config.outputModes[outputMode] || config.outputModes.website;
+        const providerName = modeConfig.providerMap?.[agentName] || config.agentLLMMap[agentName];
         return {
-            providerName: modeConfig.providerMap?.[agentName] || config.agentLLMMap[agentName],
-            model: preferredModel || modeConfig.modelMap?.[agentName] || config.agentModelMap[agentName] || '',
+            providerName,
+            model: preferredModel !== undefined
+                ? preferredModel
+                : this.llmProvider.getRecommendedModel(providerName),
         };
     }
 
@@ -309,7 +325,7 @@ CODER RECOVERY INSTRUCTION
     }
 
     async _runQualityGate({ runId, userInput, outputMode, steps, logs, customModels, artifactContract, codeResult, testResult, criticResult, currentArtifact }) {
-        const minScore = config.qualityGate?.minScore || 8.5;
+        const minScore = config.qualityGate?.minScoreByMode?.[outputMode] || config.qualityGate?.minScore || 8.5;
         const maxRepairAttempts = config.qualityGate?.maxRepairAttempts || 0;
         criticResult = this._normalizeCriticResult(criticResult, {
             outputMode,
@@ -492,6 +508,18 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
             if (/(로그인|login|signin|auth|인증)/i.test(text + ' ' + JSON.stringify(requiredElements)) && !/<form\b/i.test(text)) {
                 violations.push({ code: 'STRUCTURE_MISSING', message: 'Login/auth pages must contain a form element.' });
             }
+
+            // 시맨틱: 인터랙티브 핸들러 존재 여부
+            if (!/(onclick|addEventListener|\.addEventListener|onsubmit|handleSubmit|handleClick)/i.test(text)) {
+                violations.push({ code: 'NO_INTERACTION_HANDLER', message: 'Website artifact should contain event handlers for interactive behavior.' });
+            }
+
+            // 시맨틱: form submit 시 처리 패턴 검사 (login/auth)
+            if (/(로그인|login|signin|auth|인증)/i.test(text + ' ' + JSON.stringify(requiredElements))) {
+                if (!/(preventDefault|submit|onsubmit)/i.test(text)) {
+                    violations.push({ code: 'NO_SUBMIT_HANDLING', message: 'Login/auth form should have submit handling logic.' });
+                }
+            }
         } else if (outputMode === 'docx' || outputMode === 'deep_research') {
             if (!/(?:<!doctype html>|<html\b)/i.test(text)) {
                 violations.push({ code: 'NON_RENDERABLE', message: 'Document artifact must contain a full HTML document root.' });
@@ -503,6 +531,34 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
             const paragraphCount = (text.match(/<p\b/gi) || []).length;
             if (paragraphCount < 3) {
                 violations.push({ code: 'CONTENT_TOO_THIN', message: 'Document artifact must contain multiple content paragraphs.' });
+            }
+
+            // 시맨틱: heading hierarchy (h1 → h2 → h3 순서)
+            const headings = [...text.matchAll(/<h([1-3])\b/gi)].map((m) => parseInt(m[1]));
+            for (let i = 1; i < headings.length; i++) {
+                if (headings[i] > headings[i - 1] + 1) {
+                    violations.push({ code: 'HEADING_HIERARCHY_SKIP', message: `Heading hierarchy skip: h${headings[i - 1]} → h${headings[i]} at position ${i + 1}.` });
+                    break;
+                }
+            }
+
+            // 시맨틱: h1 단일 여부
+            const h1Count = (text.match(/<h1\b/gi) || []).length;
+            if (h1Count > 1) {
+                violations.push({ code: 'MULTIPLE_H1', message: `Document has ${h1Count} h1 elements; expected exactly 1.` });
+            }
+
+            // deep_research 전용: evidence-for/against 양측 필수
+            if (outputMode === 'deep_research') {
+                if (!/evidence-for/i.test(text)) {
+                    violations.push({ code: 'MISSING_EVIDENCE_FOR', message: 'Deep research report must contain evidence-for sections.' });
+                }
+                if (!/evidence-against/i.test(text)) {
+                    violations.push({ code: 'MISSING_EVIDENCE_AGAINST', message: 'Deep research report must contain evidence-against sections.' });
+                }
+                if (!/knowledge.?gap/i.test(text)) {
+                    violations.push({ code: 'MISSING_KNOWLEDGE_GAPS', message: 'Deep research report must contain a knowledge gaps section.' });
+                }
             }
         } else if (outputMode === 'sheet') {
             if (!/(?:<!doctype html>|<html\b)/i.test(text)) {
@@ -519,6 +575,16 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
             if (rowCount < 3) {
                 violations.push({ code: 'DATA_REGION_EMPTY', message: 'Sheet artifact must contain header and data rows.' });
             }
+
+            // 시맨틱: total/summary row 존재 여부
+            if (!/(total|합계|소계|summary|sum)/i.test(text)) {
+                violations.push({ code: 'MISSING_TOTAL_ROW', message: 'Sheet artifact should contain a total or summary row for numeric data.' });
+            }
+
+            // 시맨틱: .num 클래스 사용 여부 (숫자 컬럼 정렬)
+            if ((text.match(/<td[^>]*>/gi) || []).length > 10 && !/class=["'][^"']*num[^"']*["']/i.test(text)) {
+                violations.push({ code: 'MISSING_NUM_CLASS', message: 'Sheet artifact with numeric data should use .num class for right-aligned numeric columns.' });
+            }
         } else if (outputMode === 'slide') {
             if (!/(?:<!doctype html>|<html\b)/i.test(text)) {
                 violations.push({ code: 'NON_RENDERABLE', message: 'Slide artifact must contain a full HTML document root.' });
@@ -533,6 +599,25 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
             const longTextBlocks = (text.match(/>[^<]{240,}</g) || []).length;
             if (longTextBlocks > 2) {
                 violations.push({ code: 'TEXT_DENSITY_TOO_HIGH', message: 'Slide artifact contains overly dense text blocks.' });
+            }
+
+            // 시맨틱: slide title uniqueness
+            const slideTitles = [...text.matchAll(/<h[12][^>]*>([^<]+)</gi)].map((m) => m[1].trim().toLowerCase());
+            const uniqueTitles = new Set(slideTitles);
+            if (slideTitles.length > 0 && uniqueTitles.size < slideTitles.length * 0.7) {
+                violations.push({ code: 'DUPLICATE_SLIDE_TITLES', message: 'Multiple slides have identical or near-identical titles.' });
+            }
+
+            // 시맨틱: repeated content ratio
+            const slideBodyTexts = [...text.matchAll(/class=["'][^"']*slide[^"']*["'][^>]*>([\s\S]*?)(?=<div[^>]*class=["'][^"']*slide|$)/gi)]
+                .map((m) => m[1].replace(/<[^>]+>/g, '').trim())
+                .filter((t) => t.length > 20);
+            if (slideBodyTexts.length >= 3) {
+                const pairs = slideBodyTexts.flatMap((a, i) => slideBodyTexts.slice(i + 1).map((b) => [a, b]));
+                const duplicatePairs = pairs.filter(([a, b]) => a === b).length;
+                if (duplicatePairs > 1) {
+                    violations.push({ code: 'REPEATED_SLIDE_CONTENT', message: 'Multiple slides contain identical body content.' });
+                }
             }
         }
 
@@ -732,6 +817,11 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
         };
     }
 
+    _extractAssetPlan(planOutput) {
+        const parsed = this._extractPlanJson(planOutput);
+        return parsed?.assetPlan || null;
+    }
+
     _extractPlanJson(planOutput) {
         const text = String(planOutput || '');
         const fenced = text.match(/```json\s*([\s\S]*?)```/i);
@@ -850,10 +940,12 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
         this.broadcast(JSON.stringify({ event, data, timestamp: Date.now() }));
     }
 
-    getStatus() {
+    async getStatus() {
+        await this.llmProvider.ensureReady();
         return {
             isRunning: this.isRunning,
             availableProviders: this.llmProvider.getAvailableProviders(),
+            providerCatalogs: this.llmProvider.getProviderCatalogs(),
             agentConfig: config.agentLLMMap,
             agentModels: config.agentModelMap,
             outputModes: Object.keys(config.outputModes),

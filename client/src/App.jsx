@@ -163,8 +163,9 @@ export default function App() {
 
     useEffect(() => {
         if (!isAuthenticated) return;
+        if (!wsConnected) return;
         getStatus().then(setSystemStatus).catch(() => { });
-    }, [isAuthenticated]);
+    }, [isAuthenticated, wsConnected]);
 
     const handleAuthSubmit = useCallback(async (payload) => {
         setIsAuthSubmitting(true);
@@ -296,6 +297,7 @@ export default function App() {
                                 agentStates={agentStates}
                                 outputMode={outputMode}
                                 modeProfiles={systemStatus?.modeProfiles || null}
+                                providerCatalogs={systemStatus?.providerCatalogs || {}}
                                 customModels={customModels}
                                 onModelChange={(agentKey, model) => setCustomModels((prev) => ({ ...prev, [agentKey]: model }))}
                             />

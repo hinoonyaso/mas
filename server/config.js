@@ -15,7 +15,7 @@ const agentModelMap = {
   researcher: '',
   asset: '',
   coder: '',
-  tester: 'sonnet',
+  tester: '',
   critic: '',
 };
 
@@ -37,15 +37,6 @@ const outputModes = {
       tester: 'claude',
       critic: 'claude',
     },
-    modelMap: {
-      ...agentModelMap,
-      planner: 'gemini-2.5-flash',
-      researcher: 'sonnet',
-      asset: 'gemini-2.5-flash',
-      coder: 'gpt-5.3-codex',
-      tester: 'sonnet',
-      critic: 'sonnet',
-    },
   },
   docx: {
     label: 'Docx',
@@ -63,14 +54,6 @@ const outputModes = {
       tester: 'claude',
       critic: 'claude',
     },
-    modelMap: {
-      ...agentModelMap,
-      planner: 'gemini-2.5-flash',
-      researcher: 'sonnet',
-      coder: 'sonnet',
-      tester: 'sonnet',
-      critic: 'sonnet',
-    },
   },
   sheet: {
     label: 'Sheet',
@@ -87,14 +70,6 @@ const outputModes = {
       coder: 'codex',
       tester: 'claude',
       critic: 'claude',
-    },
-    modelMap: {
-      ...agentModelMap,
-      planner: 'gemini-2.5-flash',
-      researcher: 'claude-3-5-haiku-20241022',
-      coder: 'gpt-5.3-codex',
-      tester: 'sonnet',
-      critic: 'sonnet',
     },
   },
   slide: {
@@ -114,15 +89,6 @@ const outputModes = {
       tester: 'claude',
       critic: 'claude',
     },
-    modelMap: {
-      ...agentModelMap,
-      planner: 'gemini-2.5-flash',
-      researcher: 'sonnet',
-      asset: 'gemini-2.5-pro',
-      coder: 'gpt-5.3-codex',
-      tester: 'sonnet',
-      critic: 'sonnet',
-    },
   },
   deep_research: {
     label: 'Deep Research',
@@ -139,14 +105,6 @@ const outputModes = {
       coder: 'claude',
       tester: 'claude',
       critic: 'claude',
-    },
-    modelMap: {
-      ...agentModelMap,
-      planner: 'gemini-2.5-pro',
-      researcher: 'opus',
-      coder: 'sonnet',
-      tester: 'sonnet',
-      critic: 'opus',
     },
   },
 };
@@ -178,6 +136,13 @@ export default {
 
   qualityGate: {
     minScore: 8.5,
+    minScoreByMode: {
+      website: 8.5,
+      docx: 8.3,
+      sheet: 8.2,
+      slide: 8.0,
+      deep_research: 8.1,
+    },
     maxRepairAttempts: 1,
   },
 

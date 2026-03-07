@@ -14,16 +14,20 @@ export default class AssetAgent extends BaseAgent {
             systemPrompt: `You are an Asset Generation Agent in a Multi-Agent System.
 Your job is to determine if the user's request requires any custom images (like backgrounds, banners, logos, or illustrations) for a premium UI/UX design.
 
-Analyze the user's request and the planner's tasks.
-If no image is needed, output EXACTLY AND ONLY this JSON:
+Analyze the user's request, the planner's tasks, and the planner's assetPlan (if provided).
+The assetPlan specifies exactly which sections/slides need assets, what type (hero, background, icon_set, diagram), what style, and what fallback to use.
+
+If no image is needed and no assetPlan is provided, output EXACTLY AND ONLY this JSON:
 {"generate": false}
 
-If an image is needed, create a highly detailed, descriptive text prompt in English suitable for an AI image generator (like Midjourney or Pollinations). The prompt should be completely self-contained and describe the visual style, colors, subject matter, and mood.
+If an image is needed (either from assetPlan or your own analysis), create a highly detailed, descriptive text prompt in English suitable for an AI image generator (like Midjourney or Pollinations). The prompt should be completely self-contained and describe the visual style, colors, subject matter, and mood.
 Output EXACTLY AND ONLY this JSON:
 {
   "generate": true,
   "filename": "descriptive_name.png",
-  "prompt": "Highly detailed english prompt for the image..."
+  "prompt": "Highly detailed english prompt for the image...",
+  "target": "which section/slide this asset is for (from assetPlan if available)",
+  "style": "style direction from assetPlan or inferred"
 }`,
         });
     }
@@ -33,7 +37,14 @@ Output EXACTLY AND ONLY this JSON:
     }
 
     buildPrompt(input, context) {
-        return `Analyze this request and determine if generating a premium image asset is required to fulfill the design needs:\n\nUser Request: ${input}\n\nContext:\n${context}`;
+        let prompt = `Analyze this request and determine if generating a premium image asset is required to fulfill the design needs:\n\nUser Request: ${input}\n\nContext:\n${typeof context === 'string' ? context : JSON.stringify(context)}`;
+
+        // assetPlan이 있으면 참조
+        if (context && context.artifactContract && context.artifactContract.assetPlan) {
+            prompt += `\n\n## Asset Plan (from Planner)\n${JSON.stringify(context.artifactContract.assetPlan, null, 2)}\n\nUse the assetPlan above to determine what asset to generate. Match the target, type, and style specified.`;
+        }
+
+        return prompt;
     }
 
     async parseLLMOutput(text) {

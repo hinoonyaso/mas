@@ -128,7 +128,9 @@ app.get('/api/auth/me', authenticateRequest, (req, res) => {
 
 // 시스템 상태
 app.get('/api/status', authenticateRequest, (req, res) => {
-    res.json(pipeline.getStatus());
+    pipeline.getStatus()
+        .then((status) => res.json(status))
+        .catch((error) => res.status(500).json({ error: error.message }));
 });
 
 // 파이프라인 실행
@@ -163,6 +165,7 @@ app.get('/api/evaluations', authenticateRequest, (req, res) => {
 // ─── 서버 시작 ────────────────────────────────────────
 
 await initializeUserStore();
+const initialStatus = await pipeline.getStatus();
 
 server.listen(config.port, () => {
     console.log(`
@@ -172,7 +175,7 @@ server.listen(config.port, () => {
 ║     WebSocket: ws://localhost:${config.port}             ║
 ╚══════════════════════════════════════════════════╝
 
-Available LLM Providers: ${pipeline.getStatus().availableProviders.join(', ') || 'demo mode'}
+Available LLM Providers: ${initialStatus.availableProviders.join(', ') || 'demo mode'}
 Auth Seed User:
   Email      → ${config.auth.seedEmail}
   Password   → ${config.auth.seedPassword}

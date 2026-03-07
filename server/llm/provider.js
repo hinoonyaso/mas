@@ -1,4 +1,7 @@
 import { spawn } from 'child_process';
+import { promises as fs } from 'fs';
+import os from 'os';
+import path from 'path';
 
 /**
  * CLI Subprocess 기반 LLM Provider
@@ -16,6 +19,7 @@ import { spawn } from 'child_process';
 class LLMProvider {
     constructor() {
         this.availableProviders = [];
+        this.providerCatalogs = {};
         this.providerDetectionPromise = this._detectProviders();
     }
 
@@ -38,11 +42,26 @@ class LLMProvider {
             }
         }
 
+        await Promise.all(this.availableProviders.map((provider) => this._loadProviderCatalog(provider)));
+
         console.log(`[LLM] Detected CLI providers: ${this.availableProviders.join(', ') || 'none (demo mode)'}`);
     }
 
     getAvailableProviders() {
         return this.availableProviders;
+    }
+
+    async ensureReady() {
+        await this.providerDetectionPromise;
+    }
+
+    getProviderCatalogs() {
+        return this.providerCatalogs;
+    }
+
+    getRecommendedModel(providerName) {
+        const catalog = this.providerCatalogs[providerName];
+        return catalog?.latestModel || catalog?.defaultModel || '';
     }
 
     /**
@@ -80,8 +99,304 @@ class LLMProvider {
             totalTokens: Math.floor((prompt.length + text.length) / 4),
             latency,
             provider: providerName,
-            model: options.model || `${providerName}-cli`,
+            model: options.model || this.getRecommendedModel(providerName) || `${providerName}-cli`,
         };
+    }
+
+    async _loadProviderCatalog(providerName) {
+        const emptyCatalog = {
+            provider: providerName,
+            defaultModel: '',
+            latestModel: '',
+            models: [],
+            modelLabels: {},
+            defaultLabel: 'default CLI model',
+            source: 'cli-default',
+        };
+
+        try {
+            let catalog = emptyCatalog;
+            switch (providerName) {
+                case 'gemini':
+                    catalog = await this._discoverGeminiCatalog();
+                    break;
+                case 'claude':
+                    catalog = await this._discoverClaudeCatalog();
+                    break;
+                case 'codex':
+                    catalog = await this._discoverCodexCatalog();
+                    break;
+            }
+            this.providerCatalogs[providerName] = this._normalizeCatalog(providerName, catalog);
+        } catch (error) {
+            console.warn(`[LLM] Failed to load ${providerName} model catalog: ${error.message}`);
+            this.providerCatalogs[providerName] = emptyCatalog;
+        }
+    }
+
+    _normalizeCatalog(providerName, catalog = {}) {
+        const models = [];
+        for (const model of catalog.models || []) {
+            if (model && !models.includes(model)) {
+                models.push(model);
+            }
+        }
+
+        const defaultModel = catalog.defaultModel || '';
+        const latestModel = catalog.latestModel || defaultModel || models[0] || '';
+
+        if (latestModel && !models.includes(latestModel)) {
+            models.unshift(latestModel);
+        }
+        if (defaultModel && !models.includes(defaultModel)) {
+            models.unshift(defaultModel);
+        }
+
+        return {
+            provider: providerName,
+            defaultModel,
+            latestModel,
+            models,
+            modelLabels: { ...(catalog.modelLabels || {}) },
+            defaultLabel: catalog.defaultLabel || 'default CLI model',
+            source: catalog.source || 'cli-default',
+        };
+    }
+
+    async _discoverCodexCatalog() {
+        const defaultModel = await this._readCodexDefaultModel();
+        const cache = await this._readJsonFromCandidates([
+            path.join(os.homedir(), '.codex', 'models_cache.json'),
+            path.join(os.homedir(), '.codex.ssd.bak.20260306_013011', 'models_cache.json'),
+        ]);
+
+        const listedModels = Array.isArray(cache?.models)
+            ? cache.models
+                .filter((model) => model?.slug && model.visibility === 'list')
+                .sort((a, b) => (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER))
+                .map((model) => model.slug)
+            : [];
+
+        return {
+            defaultModel,
+            latestModel: listedModels[0] || defaultModel,
+            models: this._uniq([defaultModel, ...listedModels]),
+            source: listedModels.length ? 'codex-models-cache' : 'codex-config',
+        };
+    }
+
+    async _discoverClaudeCatalog() {
+        const helpText = await this._exec('claude', ['--help'], '', 5000).catch(() => '');
+        const aliasMatch = helpText.match(/e\.g\.\s*'([^']+)'\s+or\s+'([^']+)'/i);
+        const helpAliases = aliasMatch ? [aliasMatch[1], aliasMatch[2]] : [];
+        const usage = await this._readJsonFromCandidates([
+            path.join(os.homedir(), '.claude', 'stats-cache.json'),
+        ]);
+        const globalUsage = await this._readJsonFromCandidates([
+            path.join(os.homedir(), '.claude.json'),
+        ]);
+        const statsModels = usage?.modelUsage ? Object.keys(usage.modelUsage) : [];
+        const projectModels = globalUsage?.projects
+            ? Object.values(globalUsage.projects).flatMap((project) => Object.keys(project.lastModelUsage || {}))
+            : [];
+        const debugModels = await this._readClaudeDebugModels();
+        const exactModels = this._uniq([...statsModels, ...projectModels, ...debugModels]);
+        const aliases = this._uniq([
+            ...helpAliases,
+            ...this._deriveClaudeAliases(exactModels),
+        ]);
+        const modelLabels = {};
+
+        for (const alias of aliases) {
+            modelLabels[alias] = alias;
+        }
+        for (const model of exactModels) {
+            modelLabels[model] = this._formatClaudeModelLabel(model);
+        }
+
+        return {
+            defaultModel: '',
+            latestModel: aliases.includes('sonnet') ? 'sonnet' : aliases[0] || exactModels[0] || '',
+            models: this._uniq([...aliases, ...exactModels]),
+            modelLabels,
+            defaultLabel: aliases.includes('sonnet') ? 'default sonnet' : 'default CLI model',
+            source: aliases.length ? 'claude-help-and-usage' : 'claude-usage',
+        };
+    }
+
+    async _discoverGeminiCatalog() {
+        const chatModels = await this._readGeminiChatModels();
+        const launchedModels = await this._readGeminiLaunchedModels();
+        const models = this._uniq([...launchedModels, ...chatModels]).sort((a, b) => this._compareGeminiModels(b, a));
+
+        return {
+            defaultModel: '',
+            latestModel: models[0] || '',
+            models,
+            source: launchedModels.length ? 'gemini-flags-and-chats' : 'gemini-chats',
+        };
+    }
+
+    async _readCodexDefaultModel() {
+        const configText = await this._readTextFromCandidates([
+            path.join(os.homedir(), '.codex', 'config.toml'),
+            path.join(os.homedir(), '.codex.ssd.bak.20260306_013011', 'config.toml'),
+        ]);
+        const match = configText.match(/^\s*model\s*=\s*"([^"]+)"/m);
+        return match?.[1] || '';
+    }
+
+    async _readGeminiChatModels() {
+        const roots = [
+            path.join(os.homedir(), '.gemini', 'tmp'),
+        ];
+        const models = [];
+
+        for (const root of roots) {
+            let serverDirs = [];
+            try {
+                serverDirs = await fs.readdir(root, { withFileTypes: true });
+            } catch {
+                continue;
+            }
+
+            for (const dirent of serverDirs.filter((entry) => entry.isDirectory())) {
+                const chatDir = path.join(root, dirent.name, 'chats');
+                let files = [];
+                try {
+                    files = await fs.readdir(chatDir);
+                } catch {
+                    continue;
+                }
+
+                const recentFiles = files.filter((name) => name.endsWith('.json')).sort().slice(-40);
+                for (const file of recentFiles) {
+                    const text = await fs.readFile(path.join(chatDir, file), 'utf8').catch(() => '');
+                    for (const match of text.matchAll(/"model":\s*"([^"]+)"/g)) {
+                        models.push(match[1]);
+                    }
+                }
+            }
+        }
+
+        return this._uniq(models);
+    }
+
+    async _readGeminiLaunchedModels() {
+        const logRoot = path.join(os.homedir(), '.config', 'Antigravity', 'logs');
+        let logs = [];
+        try {
+            logs = await this._walkFiles(logRoot, 3);
+        } catch {
+            return [];
+        }
+
+        const models = [];
+        for (const file of logs.filter((name) => name.endsWith('.log')).slice(-20)) {
+            const text = await fs.readFile(file, 'utf8').catch(() => '');
+            for (const match of text.matchAll(/GeminiCLIIsLaunched__([a-z0-9_]+)_launched/gi)) {
+                const suffix = match[1].replace(/_/g, '-');
+                models.push(suffix.startsWith('gemini-') ? suffix : `gemini-${suffix}`);
+            }
+        }
+        return this._uniq(models);
+    }
+
+    _compareGeminiModels(a, b) {
+        const pa = this._parseGeminiModel(a);
+        const pb = this._parseGeminiModel(b);
+        if (pa.major !== pb.major) return pa.major - pb.major;
+        if (pa.minor !== pb.minor) return pa.minor - pb.minor;
+        if (pa.family !== pb.family) return pa.family - pb.family;
+        if (pa.preview !== pb.preview) return pa.preview - pb.preview;
+        return a.localeCompare(b);
+    }
+
+    _parseGeminiModel(modelName = '') {
+        const match = modelName.match(/gemini-(\d+)(?:-(\d+)|\.(\d+))?-(pro|flash)?/i);
+        const major = Number(match?.[1] || 0);
+        const minor = Number(match?.[2] || match?.[3] || 0);
+        const familyName = String(match?.[4] || '');
+        const family = familyName === 'pro' ? 2 : familyName === 'flash' ? 1 : 0;
+        const preview = /preview/i.test(modelName) ? 1 : 0;
+        return { major, minor, family, preview };
+    }
+
+    async _readClaudeDebugModels() {
+        const debugDir = path.join(os.homedir(), '.claude', 'debug');
+        let files = [];
+        try {
+            files = await fs.readdir(debugDir);
+        } catch {
+            return [];
+        }
+
+        const models = [];
+        for (const file of files.filter((name) => name.endsWith('.txt')).slice(-40)) {
+            const text = await fs.readFile(path.join(debugDir, file), 'utf8').catch(() => '');
+            for (const match of text.matchAll(/claude-(haiku|sonnet|opus)-[0-9]+(?:-[0-9]+)?(?:-[0-9]+)?/g)) {
+                models.push(match[0]);
+            }
+        }
+        return this._uniq(models);
+    }
+
+    _deriveClaudeAliases(models = []) {
+        const aliases = [];
+        if (models.some((model) => model.includes('sonnet'))) aliases.push('sonnet');
+        if (models.some((model) => model.includes('opus'))) aliases.push('opus');
+        if (models.some((model) => model.includes('haiku'))) aliases.push('haiku');
+        return aliases;
+    }
+
+    _formatClaudeModelLabel(model = '') {
+        const match = model.match(/^claude-(haiku|sonnet|opus)-(\d+)-(\d+)/);
+        if (!match) return model;
+        return `${match[1]} ${match[2]}.${match[3]}`;
+    }
+
+    async _walkFiles(rootDir, maxDepth = 2, depth = 0) {
+        const dirents = await fs.readdir(rootDir, { withFileTypes: true });
+        const files = [];
+
+        for (const entry of dirents) {
+            const fullPath = path.join(rootDir, entry.name);
+            if (entry.isFile()) {
+                files.push(fullPath);
+                continue;
+            }
+            if (entry.isDirectory() && depth < maxDepth) {
+                files.push(...await this._walkFiles(fullPath, maxDepth, depth + 1));
+            }
+        }
+
+        return files;
+    }
+
+    async _readTextFromCandidates(candidates = []) {
+        for (const candidate of candidates) {
+            if (!candidate) continue;
+            try {
+                return await fs.readFile(candidate, 'utf8');
+            } catch {
+                // Try the next candidate.
+            }
+        }
+        return '';
+    }
+
+    async _readJsonFromCandidates(candidates = []) {
+        const text = await this._readTextFromCandidates(candidates);
+        if (!text) return null;
+        try {
+            return JSON.parse(text);
+        } catch {
+            return null;
+        }
+    }
+
+    _uniq(values = []) {
+        return [...new Set(values.filter(Boolean))];
     }
 
     /**

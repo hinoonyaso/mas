@@ -9,15 +9,7 @@ const AGENTS = [
     { key: 'critic', name: 'Critic', icon: '⚖️', model: 'claude', color: 'var(--agent-critic)' },
 ];
 
-const AGENT_MODELS = {
-    gemini: ['', 'gemini-2.5-flash', 'gemini-2.5-pro'],
-    // 주의: claude CLI는 현재 OAuth 토큰 만료 상태일 수 있습니다.
-    claude: ['', 'sonnet', 'opus', 'claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
-    // 주의: ChatGPT 계정 등급에 따라 지원하는 모델이 다릅니다. 현재 확인된 구동 모델은 gpt-5.3-codex 입니다.
-    codex: ['', 'gpt-5.4', 'gpt-5.3-codex', 'gpt-4.5-preview', 'o3-mini', 'o1', 'gpt-4o', 'gpt-4o-mini']
-};
-
-export default function PipelineView({ agentStates, logs, onAgentClick, customModels = {}, onModelChange, outputMode = 'website', modeProfiles = null }) {
+export default function PipelineView({ agentStates, logs, onAgentClick, customModels = {}, onModelChange, outputMode = 'website', modeProfiles = null, providerCatalogs = {} }) {
     const modeProfile = modeProfiles?.[outputMode] || null;
 
     return (
@@ -25,8 +17,14 @@ export default function PipelineView({ agentStates, logs, onAgentClick, customMo
             {AGENTS.map((agent, i) => {
                 const state = agentStates[agent.key] || 'idle';
                 const provider = modeProfile?.providerMap?.[agent.key] || agent.model;
-                const recommendedModel = modeProfile?.modelMap?.[agent.key] || '';
-                const modelOptions = AGENT_MODELS[provider] || AGENT_MODELS[agent.model] || [''];
+                const catalog = providerCatalogs?.[provider] || {};
+                const recommendedModel = catalog.latestModel || catalog.defaultModel || '';
+                const modelOptions = ['', ...new Set(catalog.models || [])];
+                const defaultLabel = catalog.defaultLabel || 'default CLI model';
+                const modelLabels = catalog.modelLabels || {};
+                const selectedModel = Object.prototype.hasOwnProperty.call(customModels, agent.key)
+                    ? customModels[agent.key]
+                    : recommendedModel;
                 return (
                     <div key={agent.key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div
@@ -46,7 +44,7 @@ export default function PipelineView({ agentStates, logs, onAgentClick, customMo
                             <div className="agent-model" style={{ marginTop: '8px' }}>
                                 <select
                                     className="model-select"
-                                    value={customModels[agent.key] || recommendedModel}
+                                    value={selectedModel}
                                     onChange={(e) => onModelChange?.(agent.key, e.target.value)}
                                     disabled={state === 'active' || state === 'completed'}
                                     style={{
@@ -62,7 +60,9 @@ export default function PipelineView({ agentStates, logs, onAgentClick, customMo
                                     }}
                                 >
                                     {modelOptions.map(m => (
-                                        <option key={m || 'default'} value={m}>{m || 'default CLI model'}</option>
+                                        <option key={m || 'default'} value={m}>
+                                            {m ? (modelLabels[m] || m) : defaultLabel}
+                                        </option>
                                     ))}
                                 </select>
                             </div>

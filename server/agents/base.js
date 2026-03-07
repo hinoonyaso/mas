@@ -96,6 +96,15 @@ export default class BaseAgent {
             prompt += `Harness Focus: ${context.modeConfig.harnessFocus}\n\n`;
         }
 
+        if (context.adaptiveHints && context.adaptiveHints.length > 0) {
+            prompt += '## Adaptive Policy\n';
+            prompt += 'The following hints are derived from past execution patterns for this mode:\n';
+            for (const hint of context.adaptiveHints) {
+                prompt += `- ${hint}\n`;
+            }
+            prompt += '\n';
+        }
+
         if (context.currentArtifact) {
             prompt += '## Final Artifact Under Review\n';
             prompt += `Artifact ID: ${context.currentArtifact.id}\n`;

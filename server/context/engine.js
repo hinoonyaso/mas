@@ -11,6 +11,7 @@ export default class ContextEngine {
      */
     buildContext(agentName, { userInput, previousSteps = [], runId, outputMode = 'website', currentArtifact = null, artifactContract = null }) {
         const modeConfig = config.outputModes[outputMode] || config.outputModes.website;
+        const adaptiveHints = this.memory.getAdaptivePolicyHints(outputMode);
         const context = {
             previousSteps: this._selectRelevantSteps(agentName, previousSteps, outputMode),
             memory: this._getRelevantMemory(agentName, userInput),
@@ -24,6 +25,7 @@ export default class ContextEngine {
                 contextPriority: modeConfig.contextPriority,
                 harnessFocus: modeConfig.harnessFocus,
             },
+            adaptiveHints,
         };
 
         return context;

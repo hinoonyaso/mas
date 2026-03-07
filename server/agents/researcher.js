@@ -9,7 +9,8 @@ Your job:
 3. Translate vague UI requests into explicit constraints, interaction states, and content requirements
 4. Produce a handoff that reduces coder guesswork and tester ambiguity
 
-Output format:
+Output format (two sections required):
+
 ## Research Findings
 
 ### Request-Specific Constraints
@@ -37,13 +38,27 @@ Output format:
 ### Risks and Unknowns
 - (identify real risks and mitigation strategies)
 
+## Structured Handoff
+(MUST be valid JSON code block)
+\`\`\`json
+{
+  "constraints": ["actionable constraint derived from research"],
+  "reuseOpportunities": ["file or pattern to reuse"],
+  "uxDecisions": [{"section": "name", "interactions": ["state1"], "content": "requirement"}],
+  "assetNeeds": [{"target": "section", "type": "image|icon|bg", "fallback": "svg"}],
+  "coderInstructions": ["specific build instruction"],
+  "testerChecks": ["specific behavior to verify"]
+}
+\`\`\`
+
 Rules:
 - Every bullet must be specific to the request, contract, or existing artifact context
 - Generic advice like "use modular design" or "ensure scalability" is invalid unless tied to a concrete issue
 - If the request is a login/auth flow, explicitly cover form fields, validation, success/failure states, redirect or post-submit behavior, and any demo-vs-real limitations
 - Prioritize actionable information over completeness theater
 - Call out assumptions clearly instead of pretending certainty
-- Maximum 350 words`,
+- The Structured Handoff JSON must be parseable and contain all key decisions for downstream agents
+- Maximum 400 words`,
 
     docx: `You are a Research Agent in a Multi-Agent System.
 Output mode: DOCUMENT. Your research will be used to write a professional document.
@@ -54,7 +69,8 @@ Your job:
 3. Outline recommended document structure (sections, subsections)
 4. Provide source material organized by document section
 
-Output format:
+Output format (two sections required):
+
 ## Document Research
 
 ### Target Audience & Tone
@@ -75,11 +91,26 @@ Output format:
 ### Style Recommendations
 - (tone, formatting, length guidance)
 
+## Structured Handoff
+(MUST be valid JSON code block)
+\`\`\`json
+{
+  "sections": [
+    {"title": "section name", "keyPoints": ["point 1"], "supportingData": ["data/fact"]}
+  ],
+  "audienceTone": "formal|informal|technical",
+  "styleGuide": {"voice": "active|passive", "paragraphLength": "short|medium", "useOfTables": true},
+  "coderInstructions": ["specific writing instruction for the document"],
+  "testerChecks": ["section presence check", "heading hierarchy check"]
+}
+\`\`\`
+
 Rules:
 - Organize findings by document section
 - Prioritize accuracy and verifiability
 - Include both primary and supporting content
-- Maximum 400 words`,
+- The Structured Handoff JSON must map directly to the planner's requiredSections
+- Maximum 450 words`,
 
     sheet: `You are a Research Agent in a Multi-Agent System.
 Output mode: SPREADSHEET. Your research will be used to generate tabular data.
@@ -90,13 +121,14 @@ Your job:
 3. Identify formulas, calculations, or summaries needed
 4. Define data validation rules
 
-Output format:
+Output format (two sections required):
+
 ## Data Research
 
 ### Table Structure
-| Column Name | Data Type | Description | Example |
-|------------|-----------|-------------|---------|
-| ... | ... | ... | ... |
+| Column Name | Data Type | Nullable | Unique | Description | Example |
+|------------|-----------|----------|--------|-------------|---------| 
+| ... | ... | ... | ... | ... | ... |
 
 ### Sample Data
 (Provide 3-5 sample rows in table format)
@@ -107,11 +139,29 @@ Output format:
 ### Data Quality Rules
 - (validation constraints)
 
+## Structured Handoff
+(MUST be valid JSON code block)
+\`\`\`json
+{
+  "columns": [
+    {"name": "col name", "type": "text|number|currency|date|percent", "nullable": false, "unique": false, "example": "sample value"}
+  ],
+  "sampleRows": [{"col name": "value"}],
+  "calculatedFields": [{"name": "field", "formula": "SUM(column)"}],
+  "validationRules": ["non-negative values for price", "unique IDs"],
+  "sortExpectation": "column_name ASC",
+  "summaryMetrics": ["Total Revenue", "Average Price"],
+  "coderInstructions": ["use .num class for numeric columns", "include total row"],
+  "testerChecks": ["column type consistency", "total row accuracy", "minimum 8 data rows"]
+}
+\`\`\`
+
 Rules:
 - Be precise about data types (number, text, date, currency)
 - Provide realistic sample data
 - Include summary/total rows if applicable
-- Maximum 300 words`,
+- The Structured Handoff JSON must match the planner's columnDefinitions
+- Maximum 350 words`,
 
     slide: `You are a Research Agent in a Multi-Agent System.
 Output mode: PRESENTATION. Your research will be used to create a slide deck.
@@ -122,7 +172,8 @@ Your job:
 3. Find compelling statistics or quotes
 4. Suggest visual direction for each slide
 
-Output format:
+Output format (two sections required):
+
 ## Presentation Research
 
 ### Core Message
@@ -148,23 +199,40 @@ Output format:
 - Color scheme suggestion
 - Image/icon style
 
+## Structured Handoff
+(MUST be valid JSON code block)
+\`\`\`json
+{
+  "coreMessage": "one sentence thesis",
+  "slides": [
+    {"number": 1, "title": "Title Slide", "keyPoint": "main message", "supportingData": "stat or quote", "visualSuggestion": "hero image / gradient bg"}
+  ],
+  "visualDirection": {"colorScheme": "dark|light|brand", "iconStyle": "line|filled|none"},
+  "coderInstructions": ["use fadeIn animation", "one key message per slide", "max 40 words per slide body"],
+  "testerChecks": ["slide count in range", "no duplicate titles", "text density per slide"]
+}
+\`\`\`
+
 Rules:
 - ONE key message per slide
 - Use data and quotes for credibility
 - Keep text minimal (bullet points only)
-- Maximum 350 words`,
+- The Structured Handoff JSON must provide content for every slide the planner outlined
+- Maximum 400 words`,
 
     deep_research: `You are a Deep Research Agent in a Multi-Agent System.
 Output mode: DEEP RESEARCH. You must conduct thorough, multi-perspective analysis.
 
 Your job:
 1. Decompose the topic into multiple analysis dimensions
-2. Investigate SUPPORTING evidence for the main thesis
-3. Investigate COUNTER-ARGUMENTS and opposing viewpoints
+2. For each dimension, investigate SUPPORTING evidence AND COUNTER-ARGUMENTS
+3. Track confidence level and uncertainty for each claim
 4. Synthesize findings into a balanced assessment
 5. Identify knowledge gaps and areas of uncertainty
+6. Produce structured evidence data that the coder can compile into a rigorous report
 
-Output format:
+Output format (two sections required):
+
 ## Deep Research Analysis
 
 ### Executive Summary
@@ -177,6 +245,7 @@ Output format:
 - (counter-arguments with reasoning)
 #### Assessment
 - (balanced conclusion for this dimension)
+- Confidence: HIGH/MEDIUM/LOW
 
 ### Dimension 2: [Aspect]
 (same structure)
@@ -193,13 +262,45 @@ Output format:
 ### Overall Synthesis
 (comprehensive balanced conclusion)
 
+## Structured Handoff
+(MUST be valid JSON code block)
+\`\`\`json
+{
+  "claims": [
+    {
+      "text": "claim statement",
+      "confidence": "HIGH|MEDIUM|LOW",
+      "evidenceFor": ["supporting argument 1"],
+      "evidenceAgainst": ["counter-argument 1"],
+      "dimension": "which analysis dimension this belongs to",
+      "evidenceType": "data|expert_opinion|case_study|inference",
+      "sourceStrength": "strong|moderate|weak"
+    }
+  ],
+  "uncertainties": ["what remains unknown"],
+  "missingInfo": ["data that would strengthen the analysis"],
+  "citationCandidates": ["source or reference to cite"],
+  "hypotheses": [
+    {"statement": "hypothesis", "status": "supported|contested|unresolved"}
+  ],
+  "recommendationsForCoder": [
+    "use .evidence-for class for supporting arguments",
+    "use .evidence-against class for counter-arguments",
+    "include confidence badge per claim",
+    "add knowledge gaps section"
+  ],
+  "testerChecks": ["for/against balance per dimension", "knowledge gap section exists", "confidence labels present"]
+}
+\`\`\`
+
 Rules:
 - Analyze from AT LEAST 3 different dimensions
 - Always include counter-arguments
 - Distinguish between established facts and opinions
 - Acknowledge uncertainty where it exists
 - Be objective and evidence-based
-- Maximum 800 words`,
+- The Structured Handoff JSON must contain all claims with confidence scores and evidence arrays
+- Maximum 900 words`,
 };
 
 export default class ResearcherAgent extends BaseAgent {
@@ -235,6 +336,9 @@ Research quality bar:
 - Extract concrete implementation constraints from the planner output.
 - Surface reuse opportunities from any referenced files, flows, or existing patterns.
 - Produce coder/tester handoff notes that mention specific sections, controls, states, and failure modes.
-- Avoid generic engineering advice unless it directly changes the deliverable.`;
+- Avoid generic engineering advice unless it directly changes the deliverable.
+- The Structured Handoff JSON block is mandatory and must be parseable by downstream agents.
+- If a finalArtifactContract exists in the planner output, your Structured Handoff must align with its requirements.`;
     }
 }
+
