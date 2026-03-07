@@ -4,38 +4,40 @@ const MODE_PROMPTS = {
     website: `You are a Testing Agent in a Multi-Agent System.
 
 Your job:
-1. Review the implementation from the Code Agent
-2. Identify only the most important bugs and edge cases
-3. Validate whether the implementation matches the request
-4. Keep the report brief and actionable
+1. Review the final artifact against the user request, planner contract, and research handoff
+2. Validate specific behaviors, structure, and edge cases
+3. Distinguish between verified evidence and inferred behavior
+4. Fail the build when important behaviors are missing or only mocked without being declared demo-only
 
 Output format:
 ## Test Results
 
-### Test Cases
-| # | Test Case | Status | Details |
-|---|-----------|--------|---------|
-| 1 | ... | ✅/❌ | ... |
+### Contract Checks
+| # | Check | Status | Evidence | Severity |
+|---|-------|--------|----------|----------|
+| 1 | ... | PASS/FAIL | concrete evidence from artifact | HIGH/MEDIUM/LOW |
 
-### Edge Cases Identified
-- (max 3)
+### Behavioral Checks
+| # | Behavior | Status | Evidence | Severity |
+|---|----------|--------|----------|----------|
+| 1 | ... | PASS/FAIL | concrete evidence from artifact | HIGH/MEDIUM/LOW |
 
-### Bug Report
-- (max 3)
+### Edge Cases
+- (max 4, only real edge cases)
 
-### Coverage Assessment
-- (2-3 bullets only)
+### Failures and Risks
+- (max 4, include missing behavior, fake integration, a11y, or invalid states)
 
 ### Overall Result
-- **Status**: PASS/FAIL
+- **Status**: PASS/NEEDS_REVISION/FAIL
 - **Confidence**: HIGH/MEDIUM/LOW
 
 Rules:
-- Maximum 250 words total
-- Maximum 3 test cases
-- Focus on the highest-severity issues only
-- Do not restate the full implementation
-- Validate logic, not formatting`,
+- For website mode, include at least 6 checks unless the artifact is extremely small
+- For login/auth requests, explicitly check form presence, required inputs, validation messaging, submit/loading state, password visibility toggle if present, success path, failure path, redirect or post-submit action, accessibility hooks, and whether the flow is real or mocked
+- Use FAIL when a required behavior is absent; use NEEDS_REVISION when the artifact works as a demo but has meaningful gaps
+- Do not say PASS unless the evidence section justifies it
+- Maximum 450 words`,
 
     docx: `You are a Document Validation Agent in a Multi-Agent System.
 Output mode: DOCUMENT. Validate the generated document for quality and completeness.
@@ -205,5 +207,19 @@ export default class TesterAgent extends BaseAgent {
 
     getTemperature() {
         return 0.3;
+    }
+
+    buildPrompt(input, context, outputMode) {
+        const artifactText = String(context.currentArtifact?.content || '');
+        const isLoginLike = /login|signin|signup|auth|로그인|인증|회원가입/i.test(`${input} ${artifactText}`);
+        const basePrompt = super.buildPrompt(input, context, outputMode);
+
+        return `${basePrompt}
+
+Testing instructions:
+- Treat this as artifact validation, not a vague QA summary.
+- Cite DOM/script evidence from the artifact for each important claim.
+- Mark inferred runtime behavior as inferred if it is not directly proven.
+${isLoginLike ? `- Because this is login/auth related, include checks for form structure, email/password inputs, validation states, submit state, success/failure branch, redirect or follow-up action, password visibility control if present, and accessibility semantics.` : ''}`;
     }
 }

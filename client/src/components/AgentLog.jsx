@@ -7,6 +7,8 @@ const AGENT_COLORS = {
     coder: 'var(--agent-coder)',
     tester: 'var(--agent-tester)',
     critic: 'var(--agent-critic)',
+    rule_gate: 'var(--accent-amber)',
+    repair_audit: 'var(--accent-cyan)',
 };
 
 export default function AgentLog({ log }) {

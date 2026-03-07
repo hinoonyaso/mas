@@ -311,6 +311,12 @@ CODER RECOVERY INSTRUCTION
     async _runQualityGate({ runId, userInput, outputMode, steps, logs, customModels, artifactContract, codeResult, testResult, criticResult, currentArtifact }) {
         const minScore = config.qualityGate?.minScore || 8.5;
         const maxRepairAttempts = config.qualityGate?.maxRepairAttempts || 0;
+        criticResult = this._normalizeCriticResult(criticResult, {
+            outputMode,
+            userInput,
+            currentArtifact,
+            testOutput: testResult?.output || '',
+        });
         let quality = evaluateQuality(criticResult.output, outputMode);
         let repairAttempt = 0;
 
@@ -331,9 +337,17 @@ CODER RECOVERY INSTRUCTION
 
             codeResult = await this._executeStep('coder', repairInput, steps, logs, customModels.coder, outputMode, currentArtifact, artifactContract);
             this._ensureCoderDeliverable(codeResult, steps, repairInput, outputMode);
+            const previousArtifact = currentArtifact;
             currentArtifact = this._publishArtifactSnapshot(runId, codeResult, steps, outputMode);
+            this._recordRepairAudit(steps, previousArtifact, currentArtifact, repairMode, 'quality_gate');
             testResult = await this._executeStep('tester', repairInput, steps, logs, customModels.tester, outputMode, currentArtifact, artifactContract);
             criticResult = await this._executeStep('critic', repairInput, steps, logs, customModels.critic, outputMode, currentArtifact, artifactContract);
+            criticResult = this._normalizeCriticResult(criticResult, {
+                outputMode,
+                userInput,
+                currentArtifact,
+                testOutput: testResult?.output || '',
+            });
             quality = evaluateQuality(criticResult.output, outputMode);
         }
 
@@ -410,7 +424,9 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
 
             codeResult = await this._executeStep('coder', patchPrompt, steps, logs, customModels.coder, outputMode, currentArtifact, artifactContract);
             this._ensureCoderDeliverable(codeResult, steps, patchPrompt, outputMode);
+            const previousArtifact = currentArtifact;
             currentArtifact = this._publishArtifactSnapshot(runId, codeResult, steps, outputMode);
+            this._recordRepairAudit(steps, previousArtifact, currentArtifact, repairMode, 'rule_gate');
             violations = this._validateArtifact(outputMode, currentArtifact.content || '', artifactContract);
         }
 
@@ -419,7 +435,7 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
     }
 
     _recordRuleGateResult(steps, currentArtifact, violations) {
-        steps.push({
+        const step = {
             agent: 'rule_gate',
             role: 'Static Artifact Validation',
             output: violations.length > 0
@@ -429,6 +445,19 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
             error: violations.length > 0 ? 'RULE_GATE_FAILED' : null,
             consumedArtifactHash: currentArtifact?.hash || null,
             violations,
+        };
+
+        steps.push(step);
+        this._broadcast('agent:complete', {
+            agent: step.agent,
+            role: step.role,
+            success: step.success,
+            metrics: {
+                violations: violations.length,
+                artifactHash: currentArtifact?.hash || null,
+            },
+            output: step.output,
+            artifactHash: currentArtifact?.hash || null,
         });
     }
 
@@ -508,7 +537,7 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
         }
 
         for (const requirement of requiredElements) {
-            if (!text.toLowerCase().includes(String(requirement).toLowerCase())) {
+            if (!this._matchesRequiredElement(requirement, text, outputMode)) {
                 violations.push({ code: 'REQUIRED_ELEMENT_MISSING', message: `Required element missing from artifact: ${requirement}` });
             }
         }
@@ -537,6 +566,157 @@ ${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
             seen.add(key);
             return true;
         });
+    }
+
+    _matchesRequiredElement(requirement, text, outputMode = 'website') {
+        const source = String(requirement || '').trim();
+        if (!source) return true;
+
+        const normalized = source.toLowerCase().replace(/\s+/g, ' ').trim();
+        const html = String(text || '');
+
+        if (source.startsWith('<') || /class=|id=/.test(normalized)) {
+            return html.toLowerCase().includes(source.toLowerCase());
+        }
+
+        const matchers = [
+            {
+                test: /email input/,
+                match: () => /<input\b[^>]*(type=["']email["']|name=["'][^"']*email[^"']*["']|id=["'][^"']*email[^"']*["']|autocomplete=["']email["'])/i.test(html),
+            },
+            {
+                test: /password input/,
+                match: () => /<input\b[^>]*(type=["']password["']|name=["'][^"']*pass[^"']*["']|id=["'][^"']*pass[^"']*["']|autocomplete=["']current-password["'])/i.test(html),
+            },
+            {
+                test: /submit button/,
+                match: () => /<(button|input)\b[^>]*(type=["']submit["']|value=["'][^"']*(sign in|login|log in|continue|submit)[^"']*["'])/i.test(html)
+                    || /<button\b[^>]*>(?:[\s\S]*?)(sign in|login|log in|continue|submit)(?:[\s\S]*?)<\/button>/i.test(html),
+            },
+            {
+                test: /validation message region/,
+                match: () => /(role=["']alert["']|aria-live=["'](?:polite|assertive)["']|class=["'][^"']*(error|validation|message|status)[^"']*["']|id=["'][^"']*(error|validation|message|status)[^"']*["'])/i.test(html),
+            },
+            {
+                test: /success or failure state/,
+                match: () => {
+                    const hasStatusRegion = /(role=["']alert["']|role=["']status["']|aria-live=["'](?:polite|assertive)["']|class=["'][^"']*(error|success|status|message)[^"']*["']|id=["'][^"']*(error|success|status|message)[^"']*["'])/i.test(html);
+                    const hasSuccessToken = /\b(success|succeeded|complete|completed|redirect|dashboard|welcome)\b/i.test(html);
+                    const hasFailureToken = /\b(error|failed|failure|invalid|unauthorized|incorrect|retry)\b/i.test(html);
+                    return hasStatusRegion && (hasSuccessToken || hasFailureToken);
+                },
+            },
+            {
+                test: /\bbutton\b/,
+                match: () => /<button\b|<input\b[^>]*type=["']submit["']/i.test(html),
+            },
+            {
+                test: /\binput\b/,
+                match: () => /<input\b/i.test(html),
+            },
+            {
+                test: /\bform\b/,
+                match: () => /<form\b/i.test(html),
+            },
+        ];
+
+        for (const matcher of matchers) {
+            if (matcher.test.test(normalized)) {
+                return matcher.match();
+            }
+        }
+
+        if (outputMode === 'website') {
+            return html.toLowerCase().includes(normalized);
+        }
+
+        return html.toLowerCase().includes(normalized);
+    }
+
+    _recordRepairAudit(steps, previousArtifact, currentArtifact, requestedMode, phase) {
+        if (!previousArtifact?.content || !currentArtifact?.content) {
+            return;
+        }
+
+        const previousLines = String(previousArtifact.content || '').split('\n');
+        const nextLines = String(currentArtifact.content || '').split('\n');
+        const sharedLines = previousLines.filter((line) => nextLines.includes(line)).length;
+        const baseline = Math.max(previousLines.length, nextLines.length, 1);
+        const preservedLineRatio = sharedLines / baseline;
+        const changedLineRatio = 1 - preservedLineRatio;
+        const effectiveMode = requestedMode === 'PATCH_ONLY' && changedLineRatio > 0.45
+            ? 'CONSTRAINED_REGENERATE'
+            : requestedMode;
+
+        const step = {
+            agent: 'repair_audit',
+            role: 'Repair Delta Audit',
+            success: true,
+            error: null,
+            consumedArtifactHash: previousArtifact.hash,
+            output: `Repair audit (${phase}): requested ${requestedMode}, effective ${effectiveMode}, changed ${(changedLineRatio * 100).toFixed(1)}% of lines, preserved ${(preservedLineRatio * 100).toFixed(1)}%.`,
+            metrics: {
+                phase,
+                requestedMode,
+                effectiveMode,
+                changedLineRatio,
+                preservedLineRatio,
+                previousArtifactHash: previousArtifact.hash,
+                currentArtifactHash: currentArtifact.hash,
+            },
+        };
+
+        steps.push(step);
+        this._broadcast('agent:complete', {
+            agent: step.agent,
+            role: step.role,
+            success: true,
+            metrics: step.metrics,
+            output: step.output,
+            artifactHash: currentArtifact.hash,
+        });
+    }
+
+    _normalizeCriticResult(criticResult, { outputMode = 'website', userInput = '', currentArtifact = null, testOutput = '' } = {}) {
+        if (!criticResult?.output || outputMode !== 'website') {
+            return criticResult;
+        }
+
+        const artifactText = String(currentArtifact?.content || '');
+        const criticText = String(criticResult.output);
+        const combined = `${userInput}\n${artifactText}\n${testOutput}\n${criticText}`;
+        const scoreMatch = criticText.match(/(### Score:\s*)(\d+(?:\.\d+)?)(\s*\/\s*10)/i);
+        if (!scoreMatch) {
+            return criticResult;
+        }
+
+        const currentScore = parseFloat(scoreMatch[2]);
+        const productionReadinessMatch = criticText.match(/Production Readiness\s*\|\s*(\d+(?:\.\d+)?)\s*\/\s*10/i);
+        const productionReadiness = productionReadinessMatch ? parseFloat(productionReadinessMatch[1]) : null;
+
+        let cap = 10;
+        if (/NEEDS_REVISION|FAIL/i.test(testOutput)) cap = Math.min(cap, 8.4);
+        if (/localstorage|settimeout|mock|demo-only|placeholder|href=["']#["']/i.test(combined)) cap = Math.min(cap, 8.4);
+        if (productionReadiness !== null) cap = Math.min(cap, productionReadiness + 2);
+
+        const normalizedScore = Math.min(currentScore, cap);
+        if (normalizedScore === currentScore) {
+            return criticResult;
+        }
+
+        let normalizedOutput = criticText.replace(scoreMatch[0], `${scoreMatch[1]}${normalizedScore.toFixed(1)}${scoreMatch[3]}`);
+        if (/Final Recommendation[\s\S]*\*\*APPROVED\*\*/i.test(normalizedOutput) && normalizedScore < 8.5) {
+            normalizedOutput = normalizedOutput.replace(/\*\*APPROVED\*\*/i, '**NEEDS_REVISION**');
+        }
+
+        if (!/Normalized Score Note/i.test(normalizedOutput)) {
+            normalizedOutput += `\n\n### Normalized Score Note\nOverall score was capped to ${normalizedScore.toFixed(1)}/10 because tester evidence and production-readiness signals do not support a higher website score.`;
+        }
+
+        return {
+            ...criticResult,
+            output: normalizedOutput,
+        };
     }
 
     _resolveArtifactContract(planOutput, outputMode, userInput) {

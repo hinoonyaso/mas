@@ -263,21 +263,315 @@ class DemoLLMProvider extends LLMProvider {
         };
     }
 
-    _getDemoResponse(agentName) {
+    _getDemoResponse(agentName, prompt = '') {
+        const lowerPrompt = String(prompt || '').toLowerCase();
+        const isLogin = /login|signin|signup|auth|로그인|인증|회원가입/.test(lowerPrompt);
+
+        const plannerResponse = JSON.stringify({
+            tasks: isLogin ? [
+                {
+                    id: 1,
+                    name: 'Extract auth page contract and constraints',
+                    agent: 'researcher',
+                    description: 'Identify the required login form structure, validation states, post-submit behavior, and any existing implementation cues.',
+                    dependsOn: [],
+                    deliverable: 'Request-specific login constraints and reuse notes.',
+                    acceptanceChecks: ['Required form fields are enumerated', 'Demo-only limitations are called out explicitly'],
+                },
+                {
+                    id: 2,
+                    name: 'Implement self-contained login artifact',
+                    agent: 'coder',
+                    description: 'Build a single previewable HTML login page that follows the contract, including inline CSS/JS and explicit submit states.',
+                    dependsOn: [1],
+                    deliverable: 'One self-contained HTML document.',
+                    acceptanceChecks: ['HTML is directly renderable', 'Form, validation, and submit states exist'],
+                },
+                {
+                    id: 3,
+                    name: 'Validate login behavior and contract compliance',
+                    agent: 'tester',
+                    description: 'Check form presence, validation logic, submit flow, accessibility hooks, and whether the success path is real or mocked.',
+                    dependsOn: [2],
+                    deliverable: 'Concrete pass/fail report with evidence.',
+                    acceptanceChecks: ['At least 6 concrete checks', 'Missing or mocked behavior is flagged'],
+                },
+                {
+                    id: 4,
+                    name: 'Score demo quality versus production readiness',
+                    agent: 'critic',
+                    description: 'Review planner/researcher usefulness, implementation quality, and whether the result is only a demo or credible for production.',
+                    dependsOn: [1, 2, 3],
+                    deliverable: 'Conservative quality assessment.',
+                    acceptanceChecks: ['Separate demo quality from production readiness', 'Do not overrate polished mockups'],
+                },
+            ] : [
+                {
+                    id: 1,
+                    name: 'Extract request-specific constraints',
+                    agent: 'researcher',
+                    description: 'Turn the request into concrete requirements, reuse opportunities, and risks.',
+                    dependsOn: [],
+                    deliverable: 'Structured implementation constraints.',
+                    acceptanceChecks: ['Generic advice is avoided'],
+                },
+                {
+                    id: 2,
+                    name: 'Implement the contracted artifact',
+                    agent: 'coder',
+                    description: 'Produce the required self-contained deliverable.',
+                    dependsOn: [1],
+                    deliverable: 'User-facing artifact.',
+                    acceptanceChecks: ['Artifact matches contract'],
+                },
+                {
+                    id: 3,
+                    name: 'Validate structure and behavior',
+                    agent: 'tester',
+                    description: 'Check the artifact against the contract with evidence.',
+                    dependsOn: [2],
+                    deliverable: 'Evidence-based test report.',
+                    acceptanceChecks: ['Concrete checks and failures listed'],
+                },
+                {
+                    id: 4,
+                    name: 'Assess quality conservatively',
+                    agent: 'critic',
+                    description: 'Score the result with separate attention to contract compliance and production readiness.',
+                    dependsOn: [1, 2, 3],
+                    deliverable: 'Final review and recommendation.',
+                    acceptanceChecks: ['No inflated score'],
+                },
+            ],
+            summary: isLogin
+                ? 'Plan focuses on a concrete login-page contract, evidence-based testing, and conservative quality scoring.'
+                : 'Plan focuses on request-specific constraints, contracted implementation, and evidence-based validation.',
+            finalArtifactContract: {
+                type: 'single self-contained HTML document',
+                purpose: isLogin ? 'Authenticate a user through a credible login UI flow' : 'Deliver a directly previewable user-facing artifact',
+                requiredElements: isLogin
+                    ? ['<form', 'email input', 'password input', 'submit button', 'validation message region', 'success or failure state']
+                    : ['<main', '<style'],
+                forbiddenPatterns: ['external css link', 'external script src', 'generic placeholder copy', ...(isLogin ? ['fake success flow without marking it demo-only'] : [])],
+                renderRequirements: ['renderable in a single iframe', 'body must not be empty'],
+                assetPolicy: 'reuse existing asset first, generated asset second, deterministic fallback last',
+                reusePolicy: 'reuse existing implementation when present',
+                repairStrategy: 'patch existing artifact before full regeneration',
+                qualityBar: {
+                    demoQuality: 'Polished UI, coherent layout, clear states, no broken controls',
+                    productionReadiness: isLogin
+                        ? 'Requires real API integration, non-placeholder links, and explicit post-login navigation'
+                        : 'Requires real data flow and absence of obvious placeholder behavior',
+                },
+            },
+            executionNotes: {
+                primaryRisks: isLogin
+                    ? ['Mocked authentication may look complete but is not production-ready', 'Missing validation states reduce trust']
+                    : ['Artifact may satisfy visuals but miss functional expectations'],
+                openQuestionsOrAssumptions: ['Assume self-contained preview is preferred unless the request explicitly demands backend integration'],
+                testerFocus: isLogin
+                    ? ['form presence', 'field validation', 'submit/loading state', 'success/failure branch', 'redirect or next-step behavior', 'accessibility hooks']
+                    : ['contract compliance', 'behavioral completeness'],
+                criticFocus: ['contract compliance', 'demo quality', 'production readiness', 'pipeline coherence'],
+            },
+        }, null, 2);
+
         const responses = {
-            planner: JSON.stringify({
-                tasks: [
-                    { id: 1, name: 'Research & Analysis', agent: 'researcher', description: 'Gather relevant information and context' },
-                    { id: 2, name: 'Implementation', agent: 'coder', description: 'Write the solution based on research' },
-                    { id: 3, name: 'Testing', agent: 'tester', description: 'Verify correctness and edge cases' },
-                    { id: 4, name: 'Review', agent: 'critic', description: 'Final quality assessment' },
-                ],
-                summary: 'Task decomposed into 4 sequential steps for systematic execution.',
-            }, null, 2),
-            researcher: `## Research Findings\n\n### Key Points\n- The request involves creating a structured solution\n- Multiple approaches are viable\n- Best practices suggest modular design\n\n### Recommendations\n1. Use established patterns for reliability\n2. Ensure proper error handling\n3. Consider scalability from the start`,
+            planner: plannerResponse,
+            researcher: isLogin
+                ? `## Research Findings
+
+### Request-Specific Constraints
+- The artifact should behave like a login page, not a generic marketing card.
+- The flow needs visible email/password inputs, submit state, validation messaging, and a clear success or failure path.
+- If authentication is mocked, that limitation must be explicit so the critic/tester can score it correctly.
+
+### Reuse Opportunities
+- Reuse any existing auth layout, input styling, and button state patterns before inventing a new structure.
+- Reuse existing background or brand assets only if they can stay self-contained in the preview artifact.
+
+### UX and Content Decisions
+- Required sections: brand/context header, login form, supporting action row, and status/error region.
+- Required interactions: invalid email handling, empty-password handling, submit loading state, optional password visibility toggle, and post-submit next-step behavior.
+- Avoid placeholder actions like "#" links unless labeled as demo-only.
+
+### Asset and Visual Guidance
+- Prefer existing auth-themed assets; fall back to a deterministic gradient or illustration if none are reliable.
+- Keep all CSS and JS inline for single-file preview compatibility.
+
+### Handoff to Coder
+1. Build the form around a real submit flow with explicit success and failure branches.
+2. If backend integration is unavailable, mark the flow as demo behavior instead of pretending it is real.
+
+### Handoff to Tester
+- Verify form structure, field validation, submit/loading behavior, a11y labels, and whether success leads anywhere real.
+
+### Risks and Unknowns
+- The biggest risk is a polished UI masking fake auth behavior.
+- It is unclear whether a backend endpoint is required, so the artifact must state its limitation if it stays mock-only.`
+                : `## Research Findings
+
+### Request-Specific Constraints
+- Convert the request into explicit structure and interaction requirements before implementation.
+
+### Reuse Opportunities
+- Reuse any existing implementation patterns that already match the requested artifact.
+
+### UX and Content Decisions
+- Enumerate the sections, states, and copy requirements the coder must satisfy.
+
+### Asset and Visual Guidance
+- Keep the preview self-contained and prefer deterministic assets.
+
+### Handoff to Coder
+1. Implement only what is required by the contract.
+2. Avoid placeholder behaviors that look functional but are not.
+
+### Handoff to Tester
+- Check contract compliance with concrete evidence.
+
+### Risks and Unknowns
+- Generic implementation choices will lower pipeline coherence.`,
+            asset: JSON.stringify(
+                isLogin
+                    ? { generate: false }
+                    : {
+                        generate: true,
+                        filename: 'ui-support-visual.png',
+                        prompt: 'modern product interface support graphic, abstract geometric composition, clean editorial lighting, teal and slate palette, premium SaaS aesthetic, wide background illustration',
+                    },
+                null,
+                2,
+            ),
             coder: `## Implementation\n\n\`\`\`javascript\nclass Solution {\n  constructor(config) {\n    this.config = config;\n  }\n\n  async execute(input) {\n    const result = this.process(input);\n    return { success: true, data: result };\n  }\n\n  process(input) {\n    return { processed: true, input };\n  }\n}\n\nexport default Solution;\n\`\`\``,
-            tester: `## Test Results\n\n| # | Test Case | Status |\n|---|-----------|--------|\n| 1 | Initialization | ✅ PASS |\n| 2 | Core execution | ✅ PASS |\n| 3 | Error handling | ✅ PASS |\n| 4 | Edge cases | ✅ PASS |\n\n**Overall: 4/4 tests passed**`,
-            critic: `## Quality Assessment\n\n### Score: 8.5/10\n\n### Strengths\n- Clean architecture\n- Proper error handling\n- Good test coverage\n\n### Recommendation\n**APPROVED** - Solution meets quality standards.`,
+            tester: isLogin
+                ? `## Test Results
+
+### Contract Checks
+| # | Check | Status | Evidence | Severity |
+|---|-------|--------|----------|----------|
+| 1 | Login form exists | PASS | Artifact includes a <form> container for auth input | HIGH |
+| 2 | Email and password inputs exist | PASS | Both fields are present in the form structure | HIGH |
+| 3 | Validation messaging is explicit | FAIL | No reliable evidence of invalid-email and empty-password messages | HIGH |
+| 4 | Submit/loading state exists | FAIL | No concrete loading state or disabled-submit evidence is shown | MEDIUM |
+| 5 | Success/failure branches are distinguishable | FAIL | Demo flow does not prove real backend success/failure handling | HIGH |
+| 6 | External references are avoided | PASS | No external stylesheet/script requirement is implied in the preview contract | MEDIUM |
+
+### Behavioral Checks
+| # | Behavior | Status | Evidence | Severity |
+|---|----------|--------|----------|----------|
+| 1 | Invalid input handling | FAIL | Behavior not proven by artifact evidence | HIGH |
+| 2 | Post-submit next action | FAIL | No redirect or next-step behavior is verified | HIGH |
+| 3 | Accessibility hooks | NEEDS_REVISION | Labels and status semantics are not fully evidenced | MEDIUM |
+
+### Edge Cases
+- Empty email/password submission handling is not proven
+- Remember-me state may exist visually but not behaviorally
+
+### Failures and Risks
+- A polished auth UI can still be functionally demo-only
+- Missing validation evidence should block a PASS result
+
+### Overall Result
+- **Status**: NEEDS_REVISION
+- **Confidence**: MEDIUM`
+                : `## Test Results
+
+### Contract Checks
+| # | Check | Status | Evidence | Severity |
+|---|-------|--------|----------|----------|
+| 1 | Artifact matches requested mode | PASS | Output is presented as a user-facing artifact | HIGH |
+| 2 | Contract-specific behavior is fully proven | FAIL | Evidence is incomplete and too generic | HIGH |
+
+### Behavioral Checks
+| # | Behavior | Status | Evidence | Severity |
+|---|----------|--------|----------|----------|
+| 1 | Core request behavior | NEEDS_REVISION | Behavior is only partially evidenced | HIGH |
+
+### Edge Cases
+- Important edge cases are not concretely validated
+
+### Failures and Risks
+- Generic PASS language would overstate confidence
+
+### Overall Result
+- **Status**: NEEDS_REVISION
+- **Confidence**: MEDIUM`,
+            critic: isLogin
+                ? `## Quality Assessment
+
+### Score: 6.6/10
+
+### Review Summary
+The artifact may be a decent login mockup, but the pipeline evidence is not strong enough to treat it as a high-confidence orchestration win.
+
+### Rubric Scores
+| Dimension | Score | Notes |
+|-----------|-------|-------|
+| Contract Compliance | 6/10 | Core auth structure exists, but behavioral requirements are not fully proven |
+| Demo Quality | 8/10 | Likely polished enough for a preview |
+| Production Readiness | 4/10 | Mocked auth, placeholder actions, and unclear next-step behavior block production confidence |
+| Pipeline Coherence | 5/10 | Planner/research/test outputs are only moderately useful and not rigorous enough |
+
+### Strengths
+- User-facing artifact likely renders cleanly
+- The request is at least translated into a recognizable login UI
+
+### Weaknesses
+- Demo quality is being mistaken for production readiness
+- Tester evidence is incomplete
+- Planner and researcher outputs leave too much guesswork to the coder
+
+### Improvement Suggestions
+1. Tighten the planner contract around required auth states and prohibited fake behaviors.
+2. Require the tester to prove validation, submit state, and post-submit handling with evidence.
+
+### Pipeline Review
+- Planning Quality: 4/10 because the task breakdown is still too generic without a strict contract.
+- Research Quality: 4/10 because reuse/UX constraints are underdeveloped.
+- Implementation Quality: 7/10 because the artifact can still be decent as a demo.
+- Test Quality: 5/10 because the report is not strict enough.
+
+### Final Recommendation
+**NEEDS_REVISION**
+
+The result can be acceptable as a demo preview, but it should not be overrated as production-ready or as proof of a mature pipeline.`
+                : `## Quality Assessment
+
+### Score: 6.8/10
+
+### Review Summary
+The artifact may be usable, but the pipeline evidence is not detailed enough to justify a high score.
+
+### Rubric Scores
+| Dimension | Score | Notes |
+|-----------|-------|-------|
+| Contract Compliance | 6/10 | Some contract alignment exists but is not fully evidenced |
+| Demo Quality | 7/10 | Reasonable preview quality |
+| Production Readiness | 5/10 | Functional confidence is limited |
+| Pipeline Coherence | 5/10 | Upstream agent rigor is still weak |
+
+### Strengths
+- The artifact appears user-facing rather than purely analytical
+
+### Weaknesses
+- Planner and tester evidence remain too generic
+- The score should stay conservative until the pipeline becomes more rigorous
+
+### Improvement Suggestions
+1. Strengthen request-specific planning.
+2. Require evidence-based testing.
+
+### Pipeline Review
+- Planning Quality: 4/10 with insufficient contract detail.
+- Research Quality: 4/10 with limited actionable guidance.
+- Implementation Quality: 7/10 because the artifact may still be decent.
+- Test Quality: 5/10 because evidence is thin.
+
+### Final Recommendation
+**NEEDS_REVISION**
+
+The result is acceptable as an intermediate demo, not a strong proof of production-grade orchestration.`,
         };
         return responses[agentName] || `Demo response for ${agentName}: Processing complete.`;
     }

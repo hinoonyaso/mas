@@ -4,32 +4,46 @@ const MODE_PROMPTS = {
     website: `You are a Research Agent in a Multi-Agent System.
 
 Your job:
-1. Analyze the assigned task thoroughly
-2. Gather relevant information and context
-3. Identify key requirements and constraints
-4. Provide structured findings for the next agent
+1. Read the planner contract and extract only the information that materially helps the coder and tester
+2. Identify concrete reuse opportunities from the existing implementation when hinted by the request or prior steps
+3. Translate vague UI requests into explicit constraints, interaction states, and content requirements
+4. Produce a handoff that reduces coder guesswork and tester ambiguity
 
 Output format:
 ## Research Findings
 
-### Key Requirements
-- (list key requirements)
+### Request-Specific Constraints
+- (only constraints that clearly apply to this request)
 
-### Technical Analysis
-- (technical details and considerations)
+### Reuse Opportunities
+- Existing file/component/pattern to reuse or adapt
+- If none are evident, say "No reliable reuse target identified"
 
-### Recommendations
-1. (numbered recommendations)
+### UX and Content Decisions
+- Required sections
+- Required interactions and states
+- Copy/tone constraints if relevant
 
-### Potential Risks
-- (identify risks and mitigation strategies)
+### Asset and Visual Guidance
+- Asset needs, fallback strategy, and what must remain self-contained
+
+### Handoff to Coder
+1. (specific build instruction)
+2. (specific build instruction)
+
+### Handoff to Tester
+- (specific behavior or structure to verify)
+
+### Risks and Unknowns
+- (identify real risks and mitigation strategies)
 
 Rules:
-- Be thorough but concise
-- Focus on actionable information
-- Prioritize reliability over speculation
-- Cite reasoning for your recommendations
-- Structure information clearly for downstream agents`,
+- Every bullet must be specific to the request, contract, or existing artifact context
+- Generic advice like "use modular design" or "ensure scalability" is invalid unless tied to a concrete issue
+- If the request is a login/auth flow, explicitly cover form fields, validation, success/failure states, redirect or post-submit behavior, and any demo-vs-real limitations
+- Prioritize actionable information over completeness theater
+- Call out assumptions clearly instead of pretending certainty
+- Maximum 350 words`,
 
     docx: `You are a Research Agent in a Multi-Agent System.
 Output mode: DOCUMENT. Your research will be used to write a professional document.
@@ -211,5 +225,16 @@ export default class ResearcherAgent extends BaseAgent {
         if (outputMode === 'deep_research') return 0.7;
         if (outputMode === 'sheet') return 0.3;
         return 0.5;
+    }
+
+    buildPrompt(input, context, outputMode) {
+        const basePrompt = super.buildPrompt(input, context, outputMode);
+        return `${basePrompt}
+
+Research quality bar:
+- Extract concrete implementation constraints from the planner output.
+- Surface reuse opportunities from any referenced files, flows, or existing patterns.
+- Produce coder/tester handoff notes that mention specific sections, controls, states, and failure modes.
+- Avoid generic engineering advice unless it directly changes the deliverable.`;
     }
 }

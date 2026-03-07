@@ -37,11 +37,11 @@ export default class ContextEngine {
         const modeLimits = {
             website: {
                 planner: { steps: 0, chars: 0 },
-                researcher: { steps: 1, chars: 1200 },
+                researcher: { steps: 1, chars: 3000 },
                 asset: { steps: 2, chars: 1200 },
-                coder: { steps: 3, chars: 1800 },
-                tester: { steps: 2, chars: 2500 },
-                critic: { steps: 4, chars: 1500 },
+                coder: { steps: 3, chars: 4000 },
+                tester: { steps: 3, chars: 6000 },
+                critic: { steps: 5, chars: 5000 },
             },
             docx: {
                 planner: { steps: 0, chars: 0 },

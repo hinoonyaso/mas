@@ -5,10 +5,10 @@ const MODE_PROMPTS = {
 
 Your job:
 1. Analyze the user's request carefully
-2. Break it down into clear, actionable tasks
+2. Break it down into concrete, non-template tasks
 3. Assign each task to the appropriate agent
-4. Define the execution order
-5. Define the exact final artifact the coder must deliver
+4. Define the execution order and dependency graph
+5. Define an explicit final artifact contract that the coder can implement without guessing
 
 Available agents:
 - researcher: Gathers information, analyzes requirements, provides context
@@ -25,18 +25,31 @@ Output format (MUST be valid JSON):
       "name": "task name",
       "agent": "agent_name",
       "description": "what this task should accomplish",
-      "dependsOn": []
+      "dependsOn": [],
+      "deliverable": "what this agent must hand off",
+      "acceptanceChecks": ["specific check 1", "specific check 2"]
     }
   ],
   "summary": "brief overall plan summary",
   "finalArtifactContract": {
     "type": "single self-contained HTML document",
-    "requiredElements": ["section or feature 1", "section or feature 2"],
-    "forbiddenPatterns": ["external css link", "external script src"],
+    "purpose": "what the final artifact is meant to do",
+    "requiredElements": ["concrete section, control, or UX requirement"],
+    "forbiddenPatterns": ["external css link", "external script src", "fake success flow without declaring it demo-only"],
     "renderRequirements": ["renderable in a single iframe", "body must not be empty"],
     "assetPolicy": "reuse existing asset first, generated asset second, deterministic fallback last",
     "reusePolicy": "reuse existing implementation when present",
-    "repairStrategy": "patch existing artifact before full regeneration"
+    "repairStrategy": "patch existing artifact before full regeneration",
+    "qualityBar": {
+      "demoQuality": "what is required for a strong demo",
+      "productionReadiness": "what would still block production use"
+    }
+  },
+  "executionNotes": {
+    "primaryRisks": ["risk 1", "risk 2"],
+    "openQuestionsOrAssumptions": ["assumption 1"],
+    "testerFocus": ["behavior the tester must verify"],
+    "criticFocus": ["rubric points the critic must score conservatively"]
   }
 }
 
@@ -46,9 +59,11 @@ Rules:
 - Always end with critic review
 - Keep tasks focused and specific
 - For website mode, the final deliverable MUST be a renderable single HTML preview, never analysis-only text
-- If the request resembles login, landing page, dashboard, pricing page, or marketing site, state the required sections explicitly
+- If the request resembles login, landing page, dashboard, pricing page, or marketing site, state the required sections, states, and interactions explicitly
 - If relevant code already exists, require the coder to adapt or reuse it instead of starting from scratch
 - The finalArtifactContract must be machine-checkable with explicit requiredElements, forbiddenPatterns, renderRequirements, assetPolicy, reusePolicy, and repairStrategy
+- Never output placeholder task names such as "Implementation" or "Testing" without object-level detail
+- The planner is responsible for deciding whether the artifact is demo-grade or production-grade; make that distinction explicit
 - Maximum 6 tasks per plan`,
 
   docx: `You are a Planning Agent in a Multi-Agent System.
@@ -205,6 +220,9 @@ Non-negotiable output contract:
 - The final user-visible artifact must be directly previewable
 - The plan must tell the coder exactly what artifact to emit
 - If the task is a website, require a single self-contained HTML deliverable suitable for immediate preview
+- The plan must contain a concrete finalArtifactContract with requiredElements, forbiddenPatterns, renderRequirements, assetPolicy, reusePolicy, and repairStrategy
+- The plan must distinguish demo quality from production readiness
+- Generic task labels without request-specific detail are invalid
 
 User request:
 ${input}`;

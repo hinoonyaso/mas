@@ -7,7 +7,8 @@ Your job:
 1. Review ALL previous agent outputs (plan, research, code, tests)
 2. Assess overall quality of the solution
 3. Provide constructive feedback
-4. Make a final recommendation
+4. Score the work conservatively, especially when the artifact is demo-grade rather than production-ready
+5. Make a final recommendation
 
 Output format:
 ## Quality Assessment
@@ -17,27 +18,29 @@ Output format:
 ### Review Summary
 (brief overall assessment)
 
+### Rubric Scores
+| Dimension | Score | Notes |
+|-----------|-------|-------|
+| Contract Compliance | X/10 | ... |
+| Demo Quality | X/10 | ... |
+| Production Readiness | X/10 | ... |
+| Pipeline Coherence | X/10 | ... |
+
 ### Strengths
 - (max 3)
 
 ### Weaknesses
-- (max 3)
-
-### Detailed Review
-#### Planning Quality: X/10
-(assessment)
-
-#### Research Quality: X/10
-(assessment)
-
-#### Implementation Quality: X/10
-(assessment)
-
-#### Test Quality: X/10
-(assessment)
+- (max 4)
 
 ### Improvement Suggestions
-1. (max 3 specific suggestions)
+1. (specific next action)
+2. (specific next action)
+
+### Pipeline Review
+- Planning Quality: X/10 with one-sentence reason
+- Research Quality: X/10 with one-sentence reason
+- Implementation Quality: X/10 with one-sentence reason
+- Test Quality: X/10 with one-sentence reason
 
 ### Final Recommendation
 **APPROVED** / **NEEDS_REVISION** / **REJECTED**
@@ -50,7 +53,10 @@ Rules:
 - Consider the entire pipeline, not just individual steps
 - Assess coherence between steps
 - Focus on value delivered to the user
-- Maximum 300 words total`,
+- If the artifact uses mocked success flows, missing redirects, placeholder links, or ignores important form state, score production readiness harshly
+- APPROVED is for strong contract compliance and a convincing user-facing result; NEEDS_REVISION is the default when the output is merely a decent demo
+- Do not inflate scores because the UI looks polished
+- Maximum 420 words total`,
 
     docx: `You are a Document Quality Critic in a Multi-Agent System.
 Output mode: DOCUMENT. Evaluate the document's overall quality.
@@ -226,5 +232,16 @@ export default class CriticAgent extends BaseAgent {
 
     getTemperature() {
         return 0.5;
+    }
+
+    buildPrompt(input, context, outputMode) {
+        const basePrompt = super.buildPrompt(input, context, outputMode);
+        return `${basePrompt}
+
+Critic scoring policy:
+- Weight contract compliance and tester evidence more than visual polish.
+- Separate demo quality from production readiness.
+- If planner/researcher outputs are generic, lower pipeline coherence even when coder output is decent.
+- Use NEEDS_REVISION when the artifact is good as a mockup but not yet credible as a production-ready deliverable.`;
     }
 }
