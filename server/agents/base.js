@@ -85,8 +85,34 @@ export default class BaseAgent {
                 if (step.openIssues?.length) {
                     prompt += `Open Issues:\n${step.openIssues.map((item) => `- ${item}`).join('\n')}\n`;
                 }
+                if (step.plannedTasks?.length) {
+                    prompt += `Planned Tasks:\n${step.plannedTasks.map((task) => `- ${task.name || task.id}: ${task.description || task.deliverable || ''}`).join('\n')}\n`;
+                }
+                if (step.artifact) {
+                    prompt += `Artifact Summary: ${JSON.stringify(step.artifact)}\n`;
+                }
                 if (step.output) {
                     prompt += `Excerpt:\n${step.output}\n`;
+                }
+                prompt += '\n';
+            }
+        }
+
+        if (context.executionPlan) {
+            prompt += '## Execution Plan\n';
+            prompt += `Summary: ${context.executionPlan.summary}\n`;
+            prompt += `Stage Agents: ${context.executionPlan.stageAgents.join(' -> ')}\n`;
+            prompt += `Task Count: ${context.executionPlan.taskCount}\n\n`;
+        }
+
+        if (context.currentTasks?.length) {
+            prompt += '## Current Assigned Tasks\n';
+            for (const task of context.currentTasks) {
+                prompt += `### ${task.name || task.id}\n`;
+                prompt += `Description: ${task.description || 'N/A'}\n`;
+                if (task.deliverable) prompt += `Deliverable: ${task.deliverable}\n`;
+                if (task.acceptanceChecks?.length) {
+                    prompt += `Acceptance Checks:\n${task.acceptanceChecks.map((item) => `- ${item}`).join('\n')}\n`;
                 }
                 prompt += '\n';
             }
@@ -98,6 +124,9 @@ export default class BaseAgent {
                 prompt += `### ${memory.agent}\n`;
                 if (memory.decisionSummary?.length) {
                     prompt += `${memory.decisionSummary.map((item) => `- ${item}`).join('\n')}\n`;
+                }
+                if (memory.snapshot) {
+                    prompt += `Snapshot: ${memory.snapshot}\n`;
                 }
                 if (memory.constraintsForNextStep?.length) {
                     prompt += `Constraints:\n${memory.constraintsForNextStep.map((item) => `- ${item}`).join('\n')}\n`;

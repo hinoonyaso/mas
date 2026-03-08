@@ -38,6 +38,7 @@ export default function App() {
     const [tab, setTab] = useState('run');
     const [wsConnected, setWsConnected] = useState(false);
     const [isRunning, setIsRunning] = useState(false);
+    const [activeRunIds, setActiveRunIds] = useState([]);
     const [messages, setMessages] = useState([]);
     const [agentStates, setAgentStates] = useState({});
     const [agentLogs, setAgentLogs] = useState([]);
@@ -74,6 +75,7 @@ export default function App() {
                     setWsConnected(false);
                     break;
                 case 'pipeline:start':
+                    setActiveRunIds((prev) => Array.from(new Set([...prev, data.data.runId])));
                     setIsRunning(true);
                     setAgentLogs([]);
                     setAgentStates({});
@@ -100,7 +102,8 @@ export default function App() {
                     ]);
                     break;
                 case 'pipeline:complete':
-                    setIsRunning(false);
+                    setActiveRunIds((prev) => prev.filter((runId) => runId !== data.data.runId));
+                    setIsRunning((data.data.activeRunCount || 0) > 0);
                     setEvaluation(data.data.evaluation || null);
                     setArtifacts(data.data.artifacts || []);
                     setMessages((prev) => [
@@ -113,7 +116,8 @@ export default function App() {
                     ]);
                     break;
                 case 'pipeline:error':
-                    setIsRunning(false);
+                    setActiveRunIds((prev) => prev.filter((runId) => runId !== data.data.runId));
+                    setIsRunning((data.data.activeRunCount || 0) > 0);
                     setMessages((prev) => [
                         ...prev,
                         {
@@ -164,7 +168,11 @@ export default function App() {
     useEffect(() => {
         if (!isAuthenticated) return;
         if (!wsConnected) return;
-        getStatus().then(setSystemStatus).catch(() => { });
+        getStatus().then((status) => {
+            setSystemStatus(status);
+            setIsRunning(Boolean(status.isRunning));
+            setActiveRunIds((status.activeRuns || []).map((run) => run.runId));
+        }).catch(() => { });
     }, [isAuthenticated, wsConnected]);
 
     const handleAuthSubmit = useCallback(async (payload) => {
@@ -197,6 +205,7 @@ export default function App() {
         setRunHistory([]);
         setCustomModels({});
         setSystemStatus(null);
+        setActiveRunIds([]);
         setAuthMode('login');
     }, [closeSocket]);
 

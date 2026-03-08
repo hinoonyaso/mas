@@ -32,7 +32,7 @@ function extractPathsFromText(text) {
 export function collectArtifacts(steps, previewPath, outputMode = 'website') {
     const artifacts = [];
     const seen = new Set();
-    const collectibleAgents = new Set(['asset', 'coder']);
+    const collectibleAgents = new Set(['asset', 'coder', 'patch_coder']);
     const previewLabels = {
         website: 'Website preview',
         docx: 'Document preview',
@@ -53,6 +53,21 @@ export function collectArtifacts(steps, previewPath, outputMode = 'website') {
 
     for (const step of steps || []) {
         if (!collectibleAgents.has(step.agent)) continue;
+        if (step.artifact?.path && !seen.has(step.artifact.path)) {
+            seen.add(step.artifact.path);
+            artifacts.push({
+                path: step.artifact.path,
+                type: detectArtifactType(step.artifact.path),
+                sourceAgent: step.agent,
+                label: step.artifact.fallbackUsed ? `${step.agent} artifact (fallback)` : `${step.agent} artifact`,
+                artifactId: step.artifact.id,
+                artifactHash: step.artifact.hash,
+                parentArtifactHash: step.artifact.parentArtifactHash || null,
+                runId: step.artifact.runId || null,
+                fallbackUsed: Boolean(step.artifact.fallbackUsed),
+                fallbackReason: step.artifact.fallbackReason || null,
+            });
+        }
         const paths = extractPathsFromText(step.output);
         for (const filePath of paths) {
             if (seen.has(filePath)) continue;
@@ -62,6 +77,7 @@ export function collectArtifacts(steps, previewPath, outputMode = 'website') {
                 type: detectArtifactType(filePath),
                 sourceAgent: step.agent,
                 label: `${step.agent} artifact`,
+                parentArtifactHash: step.artifact?.hash || null,
             });
         }
     }

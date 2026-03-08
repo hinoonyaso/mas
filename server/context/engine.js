@@ -9,15 +9,30 @@ export default class ContextEngine {
     /**
      * 에이전트 실행 전 최적화된 컨텍스트 구성
      */
-    buildContext(agentName, { userInput, previousSteps = [], runId, outputMode = 'website', currentArtifact = null, artifactContract = null }) {
+    buildContext(agentName, {
+        userInput,
+        previousSteps = [],
+        runId = 'global',
+        outputMode = 'website',
+        currentArtifact = null,
+        artifactContract = null,
+        executionPlan = null,
+        currentTasks = [],
+    }) {
         const modeConfig = config.outputModes[outputMode] || config.outputModes.website;
         const adaptiveHints = this.memory.getAdaptivePolicyHints(outputMode);
         const context = {
             previousSteps: this._selectRelevantSteps(agentName, previousSteps, outputMode),
-            memory: this._getRelevantMemory(agentName, userInput),
+            memory: this._getRelevantMemory(agentName, userInput, runId),
             outputMode,
             currentArtifact,
             artifactContract,
+            executionPlan: executionPlan ? {
+                summary: executionPlan.summary,
+                stageAgents: executionPlan.stages.map((stage) => stage.agent),
+                taskCount: executionPlan.tasks.length,
+            } : null,
+            currentTasks,
             modeConfig: {
                 label: modeConfig.label,
                 researchDepth: modeConfig.researchDepth,
@@ -84,6 +99,13 @@ export default class ContextEngine {
             agent: step.agent,
             role: step.role,
             output: this._truncateStepOutput(step.output, rule.chars),
+            plannedTasks: step.plannedTasks || [],
+            artifact: step.artifact ? {
+                id: step.artifact.id,
+                hash: step.artifact.hash,
+                type: step.artifact.type,
+                fallbackUsed: Boolean(step.artifact.fallbackUsed),
+            } : null,
             order: index + 1,
         }));
     }
@@ -96,31 +118,25 @@ export default class ContextEngine {
     /**
      * 관련 메모리 조회
      */
-    _getRelevantMemory(agentName, userInput) {
-        const shortTerm = this.memory.getAllShortTerm();
+    _getRelevantMemory(agentName, userInput, runId = 'global') {
+        const shortTerm = this.memory.getAllShortTerm(runId);
         if (Object.keys(shortTerm).length === 0) return null;
 
-        let memoryText = '';
-        for (const [key, value] of Object.entries(shortTerm)) {
-            if (typeof value === 'string') {
-                memoryText += `${key}: ${value}\n`;
-            } else {
-                memoryText += `${key}: ${JSON.stringify(value)}\n`;
-            }
-        }
-
-        return memoryText || null;
+        return Object.entries(shortTerm).map(([key, value]) => ({
+            agent: key,
+            snapshot: typeof value === 'string' ? value : JSON.stringify(value),
+        }));
     }
 
     /**
      * 실행 결과를 메모리에 저장
      */
-    storeStepResult(agentName, result) {
+    storeStepResult(agentName, result, runId = 'global') {
         this.memory.setShortTerm(`lastResult_${agentName}`, {
             output: result.output?.substring(0, 500), // 토큰 절약
             success: result.success,
             timestamp: Date.now(),
-        });
+        }, runId);
     }
 
     /**
@@ -143,7 +159,7 @@ export default class ContextEngine {
     /**
      * 세션 메모리 초기화
      */
-    resetSession() {
-        this.memory.clearShortTerm();
+    resetSession(runId = 'global') {
+        this.memory.clearShortTerm(runId);
     }
 }

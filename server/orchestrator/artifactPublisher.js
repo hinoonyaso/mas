@@ -7,16 +7,23 @@ import { savePreviewArtifact } from '../artifacts/preview.js';
 
 export function createArtifactPublisher(broadcast) {
     return {
-        publishArtifactSnapshot(runId, codeResult, steps, outputMode) {
+        publishArtifactSnapshot(runId, codeResult, steps, outputMode, options = {}) {
             const previewPath = savePreviewArtifact(runId, codeResult.output, outputMode);
             const hash = crypto.createHash('sha256').update(String(codeResult.output || '')).digest('hex');
+            const previousArtifact = options.previousArtifact || null;
             const artifact = {
                 id: `artifact-${hash.slice(0, 12)}`,
                 hash,
                 path: previewPath,
                 type: outputMode,
-                producedBy: 'coder',
+                producedBy: options.sourceStep || 'coder',
                 content: String(codeResult.output || '').slice(0, 12000),
+                runId,
+                parentArtifactHash: previousArtifact?.hash || null,
+                fallbackUsed: Boolean(options.fallbackUsed),
+                fallbackReason: options.fallbackReason || null,
+                sourceStep: options.sourceStep || null,
+                generatedAt: new Date().toISOString(),
             };
 
             const latestStep = steps[steps.length - 1];

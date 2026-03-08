@@ -4,7 +4,7 @@ import config from '../config.js';
 
 export default class MemoryStore {
     constructor() {
-        this.shortTerm = new Map(); // 현재 세션 메모리
+        this.shortTermSessions = new Map(); // run/session 단위 메모리
         this.memoryDir = config.context.memoryDir;
         this._ensureDir();
     }
@@ -15,29 +15,36 @@ export default class MemoryStore {
         }
     }
 
+    _getSessionStore(sessionId = 'global') {
+        if (!this.shortTermSessions.has(sessionId)) {
+            this.shortTermSessions.set(sessionId, new Map());
+        }
+        return this.shortTermSessions.get(sessionId);
+    }
+
     // 단기 메모리 (세션 내)
-    setShortTerm(key, value) {
-        this.shortTerm.set(key, {
+    setShortTerm(key, value, sessionId = 'global') {
+        this._getSessionStore(sessionId).set(key, {
             value,
             timestamp: Date.now(),
         });
     }
 
-    getShortTerm(key) {
-        const entry = this.shortTerm.get(key);
+    getShortTerm(key, sessionId = 'global') {
+        const entry = this._getSessionStore(sessionId).get(key);
         return entry ? entry.value : null;
     }
 
-    getAllShortTerm() {
+    getAllShortTerm(sessionId = 'global') {
         const result = {};
-        for (const [key, entry] of this.shortTerm) {
+        for (const [key, entry] of this._getSessionStore(sessionId)) {
             result[key] = entry.value;
         }
         return result;
     }
 
-    clearShortTerm() {
-        this.shortTerm.clear();
+    clearShortTerm(sessionId = 'global') {
+        this.shortTermSessions.delete(sessionId);
     }
 
     // 장기 메모리 (파일 기반)

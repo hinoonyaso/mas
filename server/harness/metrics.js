@@ -21,6 +21,7 @@ export function calculatePipelineMetrics(allLogs) {
         failCount: 0,
         agents: {},
         estimatedCost: 0,
+        activeRepairSteps: 0,
     };
 
     for (const log of allLogs) {
@@ -34,6 +35,9 @@ export function calculatePipelineMetrics(allLogs) {
         else metrics.failCount++;
 
         metrics.agents[log.agent] = m;
+        if (log.agent === 'patch_coder') {
+            metrics.activeRepairSteps += 1;
+        }
     }
 
     // 대략적 비용 추정 (USD)
@@ -91,14 +95,18 @@ export function evaluateQuality(criticOutput, outputMode = 'website') {
 }
 
 export function analyzeExecutionPath(steps = []) {
-    const coderSteps = steps.filter((step) => step.agent === 'coder');
+    const coderSteps = steps.filter((step) => step.agent === 'coder' || step.agent === 'patch_coder');
     const ruleGateSteps = steps.filter((step) => step.agent === 'rule_gate');
-    const qualityRepairCount = Math.max(coderSteps.length - 1 - (ruleGateSteps.some((step) => step.success === false) ? 1 : 0), 0);
+    const initialCoder = steps.find((step) => step.agent === 'coder') || null;
     const latestCoder = coderSteps[coderSteps.length - 1] || null;
-    const firstCoder = coderSteps[0] || null;
-    const fallbackUsed = /Guaranteed Fallback Output/i.test(String(latestCoder?.output || ''));
-    const firstPassSuccess = Boolean(firstCoder?.output) && !ruleGateSteps.some((step) => step.success === false);
-    const ruleGateRepairUsed = coderSteps.length > 1 || ruleGateSteps.length > 0;
+    const patchSteps = steps.filter((step) => step.agent === 'patch_coder');
+    const qualityRepairCount = patchSteps.length;
+    const fallbackUsed = Boolean(latestCoder?.artifact?.fallbackUsed)
+        || /Guaranteed Fallback Output/i.test(String(latestCoder?.output || ''));
+    const firstPassSuccess = Boolean(initialCoder?.output)
+        && !Boolean(initialCoder?.artifact?.fallbackUsed)
+        && !ruleGateSteps.some((step) => step.success === false);
+    const ruleGateRepairUsed = patchSteps.length > 0 || ruleGateSteps.length > 0;
     const failures = [];
 
     for (const step of ruleGateSteps) {
@@ -108,7 +116,7 @@ export function analyzeExecutionPath(steps = []) {
     }
 
     if (fallbackUsed) failures.push('FALLBACK_USED');
-    if (coderSteps.some((step) => !String(step.output || '').trim())) failures.push('EMPTY_OUTPUT');
+    if (steps.some((step) => step.agent === 'coder' && !String(step.output || '').trim())) failures.push('EMPTY_OUTPUT');
 
     return {
         firstPassSuccess,
@@ -116,7 +124,7 @@ export function analyzeExecutionPath(steps = []) {
         qualityGateRepairUsed: qualityRepairCount > 0,
         qualityRepairCount,
         fallbackUsed,
-        fallbackReason: fallbackUsed ? 'CODER_OUTPUT_UNUSABLE' : null,
+        fallbackReason: latestCoder?.artifact?.fallbackReason || (fallbackUsed ? 'CODER_OUTPUT_UNUSABLE' : null),
         failureTaxonomy: [...new Set(failures)],
     };
 }
