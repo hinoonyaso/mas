@@ -3,24 +3,20 @@ dotenv.config({ path: '../.env' });
 
 const agentLLMMap = {
   planner: 'gemini',
-  spec_builder: 'claude',
   researcher: 'claude',
   asset: 'gemini',
   coder: 'codex',
-  patch_coder: 'codex',
   tester: 'claude',
   critic: 'claude',
 };
 
 const agentModelMap = {
   planner: '',
-  spec_builder: '',
   researcher: '',
   asset: '',
   coder: '',
-  patch_coder: '',
-  tester: 'claude-sonnet-4-6',
-  critic: 'claude-sonnet-4-6',
+  tester: '',
+  critic: '',
 };
 
 const outputModes = {
@@ -35,24 +31,11 @@ const outputModes = {
     providerMap: {
       ...agentLLMMap,
       planner: 'gemini',
-      spec_builder: 'claude',
       researcher: 'claude',
       asset: 'gemini',
       coder: 'codex',
-      patch_coder: 'codex',
       tester: 'claude',
       critic: 'claude',
-    },
-    modelMap: {
-      ...agentModelMap,
-      planner: 'gemini-2.5-flash',
-      spec_builder: 'claude-sonnet-4-6',
-      researcher: 'claude-sonnet-4-6',
-      asset: 'gemini-2.5-pro',
-      coder: 'gpt-5.4',
-      patch_coder: 'gpt-5.4',
-      tester: 'claude-sonnet-4-6',
-      critic: 'claude-sonnet-4-6',
     },
   },
   docx: {
@@ -66,22 +49,10 @@ const outputModes = {
     providerMap: {
       ...agentLLMMap,
       planner: 'gemini',
-      spec_builder: 'claude',
       researcher: 'claude',
       coder: 'claude',
-      patch_coder: 'claude',
       tester: 'claude',
       critic: 'claude',
-    },
-    modelMap: {
-      ...agentModelMap,
-      planner: 'gemini-2.5-flash',
-      spec_builder: 'claude-sonnet-4-6',
-      researcher: 'claude-sonnet-4-6',
-      coder: 'claude-sonnet-4-6',
-      patch_coder: 'claude-sonnet-4-6',
-      tester: 'claude-sonnet-4-6',
-      critic: 'claude-sonnet-4-6',
     },
   },
   sheet: {
@@ -95,22 +66,10 @@ const outputModes = {
     providerMap: {
       ...agentLLMMap,
       planner: 'gemini',
-      spec_builder: 'claude',
       researcher: 'claude',
       coder: 'codex',
-      patch_coder: 'codex',
       tester: 'claude',
       critic: 'claude',
-    },
-    modelMap: {
-      ...agentModelMap,
-      planner: 'gemini-2.5-flash',
-      spec_builder: 'claude-sonnet-4-6',
-      researcher: 'claude-haiku-4-5',
-      coder: 'gpt-5.4',
-      patch_coder: 'gpt-5.4',
-      tester: 'claude-sonnet-4-6',
-      critic: 'claude-sonnet-4-6',
     },
   },
   slide: {
@@ -124,24 +83,11 @@ const outputModes = {
     providerMap: {
       ...agentLLMMap,
       planner: 'gemini',
-      spec_builder: 'claude',
       researcher: 'claude',
       asset: 'gemini',
       coder: 'codex',
-      patch_coder: 'codex',
       tester: 'claude',
       critic: 'claude',
-    },
-    modelMap: {
-      ...agentModelMap,
-      planner: 'gemini-2.5-flash',
-      spec_builder: 'claude-sonnet-4-6',
-      researcher: 'claude-sonnet-4-6',
-      asset: 'gemini-2.5-pro',
-      coder: 'gpt-5.4',
-      patch_coder: 'gpt-5.4',
-      tester: 'claude-sonnet-4-6',
-      critic: 'claude-sonnet-4-6',
     },
   },
   deep_research: {
@@ -155,22 +101,10 @@ const outputModes = {
     providerMap: {
       ...agentLLMMap,
       planner: 'gemini',
-      spec_builder: 'claude',
       researcher: 'claude',
       coder: 'claude',
-      patch_coder: 'claude',
       tester: 'claude',
       critic: 'claude',
-    },
-    modelMap: {
-      ...agentModelMap,
-      planner: 'gemini-2.5-flash',
-      spec_builder: 'claude-opus-4-6',
-      researcher: 'claude-opus-4-6',
-      coder: 'claude-sonnet-4-6',
-      patch_coder: 'claude-sonnet-4-6',
-      tester: 'claude-sonnet-4-6',
-      critic: 'claude-opus-4-6',
     },
   },
 };
@@ -202,6 +136,13 @@ export default {
 
   qualityGate: {
     minScore: 8.5,
+    minScoreByMode: {
+      website: 8.5,
+      docx: 8.3,
+      sheet: 8.2,
+      slide: 8.0,
+      deep_research: 8.1,
+    },
     maxRepairAttempts: 1,
   },
 

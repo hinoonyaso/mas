@@ -1,8 +1,7 @@
 import { useState } from 'react';
 
 const AGENTS = [
-    { key: 'planner', name: 'Intent', icon: '🧭', model: 'gemini', color: 'var(--agent-planner)' },
-    { key: 'spec_builder', name: 'Spec', icon: '🧩', model: 'claude', color: 'var(--agent-spec)' },
+    { key: 'planner', name: 'Planner', icon: '📋', model: 'gemini', color: 'var(--agent-planner)' },
     { key: 'researcher', name: 'Research', icon: '🔍', model: 'claude', color: 'var(--agent-researcher)' },
     { key: 'asset', name: 'Asset', icon: '🎨', model: 'gemini', color: 'var(--agent-asset)' },
     { key: 'coder', name: 'Coder', icon: '💻', model: 'codex', color: 'var(--agent-coder)' },
@@ -10,13 +9,7 @@ const AGENTS = [
     { key: 'critic', name: 'Critic', icon: '⚖️', model: 'claude', color: 'var(--agent-critic)' },
 ];
 
-const AGENT_MODELS = {
-    gemini: ['', 'gemini-3-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3-flash-preview', 'auto', 'pro', 'flash'],
-    claude: ['', 'claude-opus-4-5', 'claude-opus-4-6', 'claude-sonnet-4', 'claude-sonnet-4-5', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
-    codex: ['', 'gpt-5', 'gpt-5.1', 'gpt-5.2', 'gpt-5.3-codex', 'gpt-5.4', 'gpt-5.1-codex', 'gpt-5.1-codex-mini', 'gpt-5.1-codex-max']
-};
-
-export default function PipelineView({ agentStates, logs, onAgentClick, customModels = {}, onModelChange, outputMode = 'website', modeProfiles = null }) {
+export default function PipelineView({ agentStates, logs, onAgentClick, customModels = {}, onModelChange, outputMode = 'website', modeProfiles = null, providerCatalogs = {} }) {
     const modeProfile = modeProfiles?.[outputMode] || null;
 
     return (
@@ -24,8 +17,14 @@ export default function PipelineView({ agentStates, logs, onAgentClick, customMo
             {AGENTS.map((agent, i) => {
                 const state = agentStates[agent.key] || 'idle';
                 const provider = modeProfile?.providerMap?.[agent.key] || agent.model;
-                const recommendedModel = modeProfile?.modelMap?.[agent.key] || '';
-                const modelOptions = AGENT_MODELS[provider] || AGENT_MODELS[agent.model] || [''];
+                const catalog = providerCatalogs?.[provider] || {};
+                const recommendedModel = catalog.latestModel || catalog.defaultModel || '';
+                const modelOptions = ['', ...new Set(catalog.models || [])];
+                const defaultLabel = catalog.defaultLabel || 'default CLI model';
+                const modelLabels = catalog.modelLabels || {};
+                const selectedModel = Object.prototype.hasOwnProperty.call(customModels, agent.key)
+                    ? customModels[agent.key]
+                    : recommendedModel;
                 return (
                     <div key={agent.key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div
@@ -45,7 +44,7 @@ export default function PipelineView({ agentStates, logs, onAgentClick, customMo
                             <div className="agent-model" style={{ marginTop: '8px' }}>
                                 <select
                                     className="model-select"
-                                    value={customModels[agent.key] || recommendedModel}
+                                    value={selectedModel}
                                     onChange={(e) => onModelChange?.(agent.key, e.target.value)}
                                     disabled={state === 'active' || state === 'completed'}
                                     style={{
@@ -61,7 +60,9 @@ export default function PipelineView({ agentStates, logs, onAgentClick, customMo
                                     }}
                                 >
                                     {modelOptions.map(m => (
-                                        <option key={m || 'default'} value={m}>{m || 'default CLI model'}</option>
+                                        <option key={m || 'default'} value={m}>
+                                            {m ? (modelLabels[m] || m) : defaultLabel}
+                                        </option>
                                     ))}
                                 </select>
                             </div>

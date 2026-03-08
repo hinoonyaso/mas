@@ -163,8 +163,9 @@ export default function App() {
 
     useEffect(() => {
         if (!isAuthenticated) return;
+        if (!wsConnected) return;
         getStatus().then(setSystemStatus).catch(() => { });
-    }, [isAuthenticated]);
+    }, [isAuthenticated, wsConnected]);
 
     const handleAuthSubmit = useCallback(async (payload) => {
         setIsAuthSubmitting(true);
@@ -260,9 +261,6 @@ export default function App() {
                     <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                         {currentUser.email}
                     </div>
-                    <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                        Provider Mode: {systemStatus?.providerHealth?.mode || 'unknown'}
-                    </div>
                     <button
                         type="button"
                         onClick={handleLogout}
@@ -295,41 +293,36 @@ export default function App() {
                 <div className="main-body">
                     {tab === 'run' && (
                         <div className="pipeline-container">
-                            <div className="run-layout">
-                                <section className="run-main">
-                                    <PipelineView
-                                        agentStates={agentStates}
-                                        outputMode={outputMode}
-                                        modeProfiles={systemStatus?.modeProfiles || null}
-                                        customModels={customModels}
-                                        onModelChange={(agentKey, model) => setCustomModels((prev) => ({ ...prev, [agentKey]: model }))}
-                                    />
+                            <PipelineView
+                                agentStates={agentStates}
+                                outputMode={outputMode}
+                                modeProfiles={systemStatus?.modeProfiles || null}
+                                providerCatalogs={systemStatus?.providerCatalogs || {}}
+                                customModels={customModels}
+                                onModelChange={(agentKey, model) => setCustomModels((prev) => ({ ...prev, [agentKey]: model }))}
+                            />
 
-                                    <ArtifactPanel artifacts={artifacts} outputMode={outputMode} />
+                            <ArtifactPanel artifacts={artifacts} outputMode={outputMode} />
 
-                                    {agentLogs.length > 0 && (
-                                        <div className="run-logs">
-                                            <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: 'var(--text-secondary)' }}>
-                                                에이전트 실행 로그
-                                            </h3>
-                                            {agentLogs.map((log, i) => (
-                                                <AgentLog key={i} log={log} />
-                                            ))}
-                                        </div>
-                                    )}
-                                </section>
+                            {agentLogs.length > 0 && (
+                                <div>
+                                    <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: 'var(--text-secondary)' }}>
+                                        에이전트 실행 로그
+                                    </h3>
+                                    {agentLogs.map((log, i) => (
+                                        <AgentLog key={i} log={log} />
+                                    ))}
+                                </div>
+                            )}
 
-                                <aside className="run-chat">
-                                    <ChatPanel
-                                        messages={messages}
-                                        onSend={handleSend}
-                                        isRunning={isRunning}
-                                        outputMode={outputMode}
-                                        onModeChange={setOutputMode}
-                                        modeProfile={systemStatus?.modeProfiles?.[outputMode] || null}
-                                    />
-                                </aside>
-                            </div>
+                            <ChatPanel
+                                messages={messages}
+                                onSend={handleSend}
+                                isRunning={isRunning}
+                                outputMode={outputMode}
+                                onModeChange={setOutputMode}
+                                modeProfile={systemStatus?.modeProfiles?.[outputMode] || null}
+                            />
                         </div>
                     )}
 
