@@ -2,11 +2,14 @@ import { useState } from 'react';
 
 const AGENT_COLORS = {
     planner: 'var(--agent-planner)',
+    spec_builder: 'var(--agent-spec)',
     researcher: 'var(--agent-researcher)',
     asset: 'var(--agent-asset)',
     coder: 'var(--agent-coder)',
+    patch_coder: 'var(--agent-coder)',
     tester: 'var(--agent-tester)',
     critic: 'var(--agent-critic)',
+    rule_gate: 'var(--accent-amber)',
 };
 
 export default function AgentLog({ log }) {

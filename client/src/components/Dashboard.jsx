@@ -17,7 +17,7 @@ export default function Dashboard({ runHistory, wsConnected }) {
                 </div>
                 <div className="stat-card">
                     <div className="stat-label">에이전트 수</div>
-                    <div className="stat-value" style={{ color: 'var(--accent-cyan)' }}>6</div>
+                    <div className="stat-value" style={{ color: 'var(--accent-cyan)' }}>7</div>
                 </div>
                 <div className="stat-card">
                     <div className="stat-label">LLM 방식</div>
@@ -122,7 +122,9 @@ export default function Dashboard({ runHistory, wsConnected }) {
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: '1.8', color: 'var(--text-secondary)' }}>
                     <div>User Request</div>
                     <div style={{ color: 'var(--text-muted)' }}> ↓</div>
-                    <div><span style={{ color: 'var(--agent-planner)' }}>● Planner</span> (gemini) → 태스크 분해</div>
+                    <div><span style={{ color: 'var(--agent-planner)' }}>● Intent Planner</span> (gemini) → 라우팅/범위 결정</div>
+                    <div style={{ color: 'var(--text-muted)' }}> ↓</div>
+                    <div><span style={{ color: 'var(--agent-spec)' }}>● Spec Builder</span> (claude) → 최소 계약 생성</div>
                     <div style={{ color: 'var(--text-muted)' }}> ↓</div>
                     <div><span style={{ color: 'var(--agent-researcher)' }}>● Research</span> (claude) → 정보 수집</div>
                     <div style={{ color: 'var(--text-muted)' }}> ↓</div>
@@ -130,7 +132,7 @@ export default function Dashboard({ runHistory, wsConnected }) {
                     <div style={{ color: 'var(--text-muted)' }}> ↓</div>
                     <div><span style={{ color: 'var(--agent-coder)' }}>● Coder</span> (codex) → 구현</div>
                     <div style={{ color: 'var(--text-muted)' }}> ↓</div>
-                    <div><span style={{ color: 'var(--agent-tester)' }}>● Tester</span> (gemini) → 검증</div>
+                    <div><span style={{ color: 'var(--agent-tester)' }}>● Tester</span> (claude) → 검증</div>
                     <div style={{ color: 'var(--text-muted)' }}> ↓</div>
                     <div><span style={{ color: 'var(--agent-critic)' }}>● Critic</span> (claude) → 품질 평가</div>
                     <div style={{ color: 'var(--text-muted)' }}> ↓</div>
@@ -172,7 +174,7 @@ export default function Dashboard({ runHistory, wsConnected }) {
                     <div className="empty-icon">🚀</div>
                     <div className="empty-title">시작할 준비가 되었습니다</div>
                     <div className="empty-desc">
-                        "실행" 탭에서 요청을 입력하면 5개 AI 에이전트가 순차적으로 협력하여 처리합니다.
+                        "실행" 탭에서 요청을 입력하면 7개 AI 에이전트가 intent, spec, 구현, 검증 흐름으로 협력합니다.
                         <br /><br />
                         💡 토큰 최소화: CLI Subprocess 방식으로 추가 비용 없이 동작합니다.
                     </div>

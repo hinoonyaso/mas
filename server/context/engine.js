@@ -37,40 +37,50 @@ export default class ContextEngine {
         const modeLimits = {
             website: {
                 planner: { steps: 0, chars: 0 },
-                researcher: { steps: 1, chars: 1200 },
-                asset: { steps: 2, chars: 1200 },
-                coder: { steps: 3, chars: 1800 },
-                tester: { steps: 2, chars: 2500 },
-                critic: { steps: 4, chars: 1500 },
+                spec_builder: { steps: 1, chars: 700 },
+                researcher: { steps: 2, chars: 900 },
+                asset: { steps: 2, chars: 900 },
+                coder: { steps: 4, chars: 1200 },
+                patch_coder: { steps: 4, chars: 1200 },
+                tester: { steps: 3, chars: 1400 },
+                critic: { steps: 4, chars: 1200 },
             },
             docx: {
                 planner: { steps: 0, chars: 0 },
-                researcher: { steps: 1, chars: 1500 },
-                coder: { steps: 2, chars: 2500 },
-                tester: { steps: 2, chars: 2000 },
-                critic: { steps: 4, chars: 1500 },
+                spec_builder: { steps: 1, chars: 700 },
+                researcher: { steps: 2, chars: 1000 },
+                coder: { steps: 3, chars: 1400 },
+                patch_coder: { steps: 3, chars: 1200 },
+                tester: { steps: 2, chars: 1200 },
+                critic: { steps: 4, chars: 1200 },
             },
             sheet: {
                 planner: { steps: 0, chars: 0 },
-                researcher: { steps: 1, chars: 1200 },
-                coder: { steps: 2, chars: 2000 },
-                tester: { steps: 2, chars: 2500 },
-                critic: { steps: 4, chars: 1500 },
+                spec_builder: { steps: 1, chars: 700 },
+                researcher: { steps: 2, chars: 900 },
+                coder: { steps: 3, chars: 1200 },
+                patch_coder: { steps: 3, chars: 1100 },
+                tester: { steps: 2, chars: 1200 },
+                critic: { steps: 4, chars: 1100 },
             },
             slide: {
                 planner: { steps: 0, chars: 0 },
-                researcher: { steps: 1, chars: 1500 },
-                asset: { steps: 2, chars: 1200 },
-                coder: { steps: 3, chars: 2000 },
-                tester: { steps: 2, chars: 1500 },
-                critic: { steps: 4, chars: 1500 },
+                spec_builder: { steps: 1, chars: 700 },
+                researcher: { steps: 2, chars: 1000 },
+                asset: { steps: 2, chars: 900 },
+                coder: { steps: 4, chars: 1200 },
+                patch_coder: { steps: 4, chars: 1200 },
+                tester: { steps: 2, chars: 1200 },
+                critic: { steps: 4, chars: 1100 },
             },
             deep_research: {
                 planner: { steps: 0, chars: 0 },
-                researcher: { steps: 1, chars: 3000 },
-                coder: { steps: 2, chars: 3000 },
-                tester: { steps: 2, chars: 2500 },
-                critic: { steps: 4, chars: 2000 },
+                spec_builder: { steps: 1, chars: 800 },
+                researcher: { steps: 2, chars: 1400 },
+                coder: { steps: 3, chars: 1500 },
+                patch_coder: { steps: 3, chars: 1200 },
+                tester: { steps: 2, chars: 1200 },
+                critic: { steps: 4, chars: 1200 },
             },
         };
 
@@ -78,12 +88,18 @@ export default class ContextEngine {
         const rule = limits[agentName] || { steps: 3, chars: 1500 };
         const selected = previousSteps.slice(-rule.steps);
 
-        return selected.map((step, index) => ({
-            agent: step.agent,
-            role: step.role,
-            output: this._truncateStepOutput(step.output, rule.chars),
-            order: index + 1,
-        }));
+        return selected.map((step, index) => {
+            const operational = step.operational || this._buildOperationalSummary(step, rule.chars);
+            return {
+                agent: step.agent,
+                role: step.role,
+                decisionSummary: operational.decisionSummary,
+                constraintsForNextStep: operational.constraintsForNextStep,
+                openIssues: operational.openIssues,
+                output: this._truncateStepOutput(step.output, Math.min(rule.chars, 320)),
+                order: index + 1,
+            };
+        });
     }
 
     _truncateStepOutput(output, maxChars) {
@@ -98,25 +114,33 @@ export default class ContextEngine {
         const shortTerm = this.memory.getAllShortTerm();
         if (Object.keys(shortTerm).length === 0) return null;
 
-        let memoryText = '';
-        for (const [key, value] of Object.entries(shortTerm)) {
-            if (typeof value === 'string') {
-                memoryText += `${key}: ${value}\n`;
-            } else {
-                memoryText += `${key}: ${JSON.stringify(value)}\n`;
-            }
-        }
+        const records = Object.entries(shortTerm)
+            .filter(([key]) => key.startsWith('operational_'))
+            .map(([, value]) => value)
+            .filter(Boolean)
+            .slice(-4);
 
-        return memoryText || null;
+        return records.length > 0 ? records : null;
     }
 
     /**
      * 실행 결과를 메모리에 저장
      */
     storeStepResult(agentName, result) {
-        this.memory.setShortTerm(`lastResult_${agentName}`, {
-            output: result.output?.substring(0, 500), // 토큰 절약
+        const output = String(result.output || '');
+        const operational = this._buildOperationalSummary({
+            agent: agentName,
+            role: result.log?.role || agentName,
+            output,
             success: result.success,
+            error: result.error || null,
+        }, 500);
+
+        this.memory.setShortTerm(`operational_${agentName}`, {
+            agent: agentName,
+            decisionSummary: operational.decisionSummary,
+            constraintsForNextStep: operational.constraintsForNextStep,
+            openIssues: operational.openIssues,
             timestamp: Date.now(),
         });
     }
@@ -143,5 +167,28 @@ export default class ContextEngine {
      */
     resetSession() {
         this.memory.clearShortTerm();
+    }
+
+    _buildOperationalSummary(step, maxChars = 500) {
+        const text = this._truncateStepOutput(String(step?.output || step?.error || ''), maxChars);
+        const lines = text
+            .split('\n')
+            .map((line) => line.replace(/^[-*#>\s]+/, '').trim())
+            .filter(Boolean);
+
+        const decisionSummary = lines.slice(0, 3);
+        const constraintsForNextStep = lines
+            .filter((line) => /(must|should|require|forbid|avoid|exactly|return|include|exclude|single-file|self-contained|responsive|table|html|cta|section)/i.test(line))
+            .slice(0, 3);
+        const openIssues = [
+            ...(step?.success === false && step?.error ? [String(step.error)] : []),
+            ...lines.filter((line) => /(risk|issue|missing|fail|warning|unknown|uncertain|blocked|gap)/i.test(line)).slice(0, 2),
+        ].slice(0, 3);
+
+        return {
+            decisionSummary,
+            constraintsForNextStep,
+            openIssues,
+        };
     }
 }

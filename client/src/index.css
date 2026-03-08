@@ -28,6 +28,7 @@
 
   /* Agent Colors */
   --agent-planner: #6366f1;
+  --agent-spec: #14b8a6;
   --agent-researcher: #8b5cf6;
   --agent-asset: #ec4899;
   /* Pink for Asset Agent */
@@ -266,6 +267,27 @@ body {
   height: 100%;
 }
 
+.run-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(340px, 0.95fr);
+  gap: 24px;
+  min-height: 100%;
+  align-items: start;
+}
+
+.run-main,
+.run-logs {
+  min-width: 0;
+}
+
+.run-chat {
+  min-width: 0;
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 170px);
+  display: flex;
+}
+
 .pipeline-agents {
   display: flex;
   align-items: center;
@@ -371,15 +393,22 @@ body {
 /* ── Chat / Input ─────────────── */
 .chat-area {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 18px;
+  border: 1px solid var(--border-glass);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.86), rgba(15, 23, 42, 0.7)),
+    var(--bg-glass);
 }
 
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 0;
+  padding: 4px 0 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1311,6 +1340,15 @@ body {
 
 /* ── Responsive ───────────────── */
 @media (max-width: 1080px) {
+  .run-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .run-chat {
+    position: static;
+    max-height: none;
+  }
+
   .auth-grid {
     grid-template-columns: 1fr;
   }

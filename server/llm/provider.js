@@ -266,16 +266,33 @@ class DemoLLMProvider extends LLMProvider {
     _getDemoResponse(agentName) {
         const responses = {
             planner: JSON.stringify({
-                tasks: [
-                    { id: 1, name: 'Research & Analysis', agent: 'researcher', description: 'Gather relevant information and context' },
-                    { id: 2, name: 'Implementation', agent: 'coder', description: 'Write the solution based on research' },
-                    { id: 3, name: 'Testing', agent: 'tester', description: 'Verify correctness and edge cases' },
-                    { id: 4, name: 'Review', agent: 'critic', description: 'Final quality assessment' },
-                ],
-                summary: 'Task decomposed into 4 sequential steps for systematic execution.',
+                taskType: 'website',
+                complexity: 'mid',
+                needResearch: true,
+                needAsset: true,
+                codingScope: 'single-file',
+                qualityTarget: 'balanced',
+                directDeliverable: 'Single self-contained HTML preview',
+                summary: 'Research, asset check, implementation, validation.',
+            }, null, 2),
+            spec_builder: JSON.stringify({
+                summary: 'Single self-contained HTML preview for the requested interface.',
+                finalArtifactContract: {
+                    type: 'single self-contained HTML document',
+                    requiredElements: ['hero or primary screen', 'clear CTA or primary interaction', 'responsive layout'],
+                    forbiddenPatterns: ['external css link', 'external script src'],
+                    renderRequirements: ['renderable in a single iframe', 'body must not be empty'],
+                    assetPolicy: 'reuse existing asset first, generated asset second, deterministic fallback last',
+                    reusePolicy: 'reuse existing implementation when present',
+                    repairStrategy: 'patch existing artifact before full regeneration',
+                },
+                validationChecks: ['Primary interaction exists', 'Layout is previewable', 'No placeholder-only output'],
+                handoffNotes: ['Prefer concise implementation context'],
             }, null, 2),
             researcher: `## Research Findings\n\n### Key Points\n- The request involves creating a structured solution\n- Multiple approaches are viable\n- Best practices suggest modular design\n\n### Recommendations\n1. Use established patterns for reliability\n2. Ensure proper error handling\n3. Consider scalability from the start`,
+            asset: `{"generate": false}`,
             coder: `## Implementation\n\n\`\`\`javascript\nclass Solution {\n  constructor(config) {\n    this.config = config;\n  }\n\n  async execute(input) {\n    const result = this.process(input);\n    return { success: true, data: result };\n  }\n\n  process(input) {\n    return { processed: true, input };\n  }\n}\n\nexport default Solution;\n\`\`\``,
+            patch_coder: `## Implementation Patch\n\n\`\`\`javascript\n// Surgical patch applied to address the reported issue while preserving the existing structure.\nexport function applyPatch(state) {\n  return { ...state, patched: true };\n}\n\`\`\``,
             tester: `## Test Results\n\n| # | Test Case | Status |\n|---|-----------|--------|\n| 1 | Initialization | ✅ PASS |\n| 2 | Core execution | ✅ PASS |\n| 3 | Error handling | ✅ PASS |\n| 4 | Edge cases | ✅ PASS |\n\n**Overall: 4/4 tests passed**`,
             critic: `## Quality Assessment\n\n### Score: 8.5/10\n\n### Strengths\n- Clean architecture\n- Proper error handling\n- Good test coverage\n\n### Recommendation\n**APPROVED** - Solution meets quality standards.`,
         };

@@ -127,8 +127,8 @@ app.get('/api/auth/me', authenticateRequest, (req, res) => {
 });
 
 // 시스템 상태
-app.get('/api/status', authenticateRequest, (req, res) => {
-    res.json(pipeline.getStatus());
+app.get('/api/status', authenticateRequest, async (req, res) => {
+    res.json(await pipeline.getStatus());
 });
 
 // 파이프라인 실행
@@ -165,22 +165,27 @@ app.get('/api/evaluations', authenticateRequest, (req, res) => {
 await initializeUserStore();
 
 server.listen(config.port, () => {
-    console.log(`
+    pipeline.getStatus().then((status) => {
+        console.log(`
 ╔══════════════════════════════════════════════════╗
 ║     🤖 MAS Orchestration Server                  ║
 ║     Port: ${config.port}                                ║
 ║     WebSocket: ws://localhost:${config.port}             ║
 ╚══════════════════════════════════════════════════╝
 
-Available LLM Providers: ${pipeline.getStatus().availableProviders.join(', ') || 'demo mode'}
+Provider Mode: ${status.providerHealth.mode}
+Available LLM Providers: ${status.availableProviders.join(', ') || 'demo mode'}
 Auth Seed User:
   Email      → ${config.auth.seedEmail}
   Password   → ${config.auth.seedPassword}
 Agent Configuration:
   Planner    → ${config.agentLLMMap.planner}
+  Spec       → ${config.agentLLMMap.spec_builder}
   Researcher → ${config.agentLLMMap.researcher}
   Coder      → ${config.agentLLMMap.coder}
+  PatchCoder → ${config.agentLLMMap.patch_coder}
   Tester     → ${config.agentLLMMap.tester}
   Critic     → ${config.agentLLMMap.critic}
   `);
+    });
 });

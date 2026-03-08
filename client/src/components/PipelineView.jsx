@@ -1,7 +1,8 @@
 import { useState } from 'react';
 
 const AGENTS = [
-    { key: 'planner', name: 'Planner', icon: '📋', model: 'gemini', color: 'var(--agent-planner)' },
+    { key: 'planner', name: 'Intent', icon: '🧭', model: 'gemini', color: 'var(--agent-planner)' },
+    { key: 'spec_builder', name: 'Spec', icon: '🧩', model: 'claude', color: 'var(--agent-spec)' },
     { key: 'researcher', name: 'Research', icon: '🔍', model: 'claude', color: 'var(--agent-researcher)' },
     { key: 'asset', name: 'Asset', icon: '🎨', model: 'gemini', color: 'var(--agent-asset)' },
     { key: 'coder', name: 'Coder', icon: '💻', model: 'codex', color: 'var(--agent-coder)' },
@@ -10,11 +11,9 @@ const AGENTS = [
 ];
 
 const AGENT_MODELS = {
-    gemini: ['', 'gemini-2.5-flash', 'gemini-2.5-pro'],
-    // 주의: claude CLI는 현재 OAuth 토큰 만료 상태일 수 있습니다.
-    claude: ['', 'sonnet', 'opus', 'claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
-    // 주의: ChatGPT 계정 등급에 따라 지원하는 모델이 다릅니다. 현재 확인된 구동 모델은 gpt-5.3-codex 입니다.
-    codex: ['', 'gpt-5.4', 'gpt-5.3-codex', 'gpt-4.5-preview', 'o3-mini', 'o1', 'gpt-4o', 'gpt-4o-mini']
+    gemini: ['', 'gemini-3-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3-flash-preview', 'auto', 'pro', 'flash'],
+    claude: ['', 'claude-opus-4-5', 'claude-opus-4-6', 'claude-sonnet-4', 'claude-sonnet-4-5', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
+    codex: ['', 'gpt-5', 'gpt-5.1', 'gpt-5.2', 'gpt-5.3-codex', 'gpt-5.4', 'gpt-5.1-codex', 'gpt-5.1-codex-mini', 'gpt-5.1-codex-max']
 };
 
 export default function PipelineView({ agentStates, logs, onAgentClick, customModels = {}, onModelChange, outputMode = 'website', modeProfiles = null }) {

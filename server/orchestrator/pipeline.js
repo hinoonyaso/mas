@@ -1,18 +1,22 @@
 import { v4 as uuidv4 } from 'uuid';
-import crypto from 'crypto';
 import config from '../config.js';
 import { DemoLLMProvider } from '../llm/provider.js';
 import ContextEngine from '../context/engine.js';
 import Evaluator from '../harness/evaluator.js';
 import PlannerAgent from '../agents/planner.js';
+import SpecBuilderAgent from '../agents/spec-builder.js';
 import ResearcherAgent from '../agents/researcher.js';
 import AssetAgent from '../agents/asset.js';
 import CoderAgent from '../agents/coder.js';
+import PatchCoderAgent from '../agents/patch-coder.js';
 import TesterAgent from '../agents/tester.js';
 import CriticAgent from '../agents/critic.js';
-import { ensureRenderableOutput, savePreviewArtifact } from '../artifacts/preview.js';
+import { savePreviewArtifact } from '../artifacts/preview.js';
 import { collectArtifacts } from '../artifacts/manifest.js';
-import { evaluateQuality } from '../harness/metrics.js';
+import { resolveIntentPlan, buildSpecBuilderInput } from './intentRouter.js';
+import { resolveArtifactContract } from './artifactContract.js';
+import { createArtifactPublisher } from './artifactPublisher.js';
+import { createRepairStrategy } from './repairStrategy.js';
 
 export default class Pipeline {
     constructor(broadcast) {
@@ -22,21 +26,29 @@ export default class Pipeline {
         this.evaluator = new Evaluator();
         this.isRunning = false;
 
-        // 에이전트 초기화
         const map = config.agentLLMMap;
         this.agents = {
             planner: new PlannerAgent(this.llmProvider, map.planner),
+            spec_builder: new SpecBuilderAgent(this.llmProvider, map.spec_builder),
             researcher: new ResearcherAgent(this.llmProvider, map.researcher),
             asset: new AssetAgent(this.llmProvider, map.asset),
             coder: new CoderAgent(this.llmProvider, map.coder),
+            patch_coder: new PatchCoderAgent(this.llmProvider, map.patch_coder),
             tester: new TesterAgent(this.llmProvider, map.tester),
             critic: new CriticAgent(this.llmProvider, map.critic),
         };
+
+        const _broadcast = (event, data) => this._broadcast(event, data);
+        const _executeStep = (...args) => this._executeStep(...args);
+
+        this.publisher = createArtifactPublisher(_broadcast);
+        this.repair = createRepairStrategy({
+            executeStep: _executeStep,
+            publishArtifactSnapshot: (...args) => this.publisher.publishArtifactSnapshot(...args),
+            broadcast: _broadcast,
+        });
     }
 
-    /**
-     * 전체 파이프라인 실행
-     */
     async run(userInput, customModels = {}, outputMode = 'website') {
         if (this.isRunning) {
             throw new Error('Pipeline is already running');
@@ -49,88 +61,62 @@ export default class Pipeline {
         const logs = [];
         let artifactContract = null;
 
-        // 출력 모드 설정 로드
         const modeConfig = config.outputModes[outputMode] || config.outputModes.website;
-
         this.contextEngine.resetSession();
 
         this._broadcast('pipeline:start', {
             runId,
             input: userInput,
             outputMode,
-            agents: Object.keys(this.agents),
+            agents: ['planner', 'spec_builder', 'researcher', 'asset', 'coder', 'tester', 'critic'],
         });
 
         try {
-            // Step 1: Planner
-            const planResult = await this._executeStep('planner', userInput, steps, logs, customModels.planner, outputMode);
-            if (!planResult.success) throw new Error('Planner failed: ' + planResult.error);
-            artifactContract = this._resolveArtifactContract(planResult.output, outputMode, userInput);
+            // Step 1: Intent Planner
+            const intentResult = await this._executeStep('planner', userInput, steps, logs, customModels.planner, outputMode);
+            if (!intentResult.success) throw new Error('Planner failed: ' + intentResult.error);
+            const intentPlan = resolveIntentPlan(intentResult.output, outputMode, userInput);
 
-            // Step 2: Researcher
-            const researchResult = await this._executeStep('researcher', userInput, steps, logs, customModels.researcher, outputMode);
+            // Step 2: Spec Builder
+            const specInput = buildSpecBuilderInput(userInput, intentPlan, outputMode);
+            const specResult = await this._executeStep('spec_builder', specInput, steps, logs, customModels.spec_builder, outputMode);
+            if (!specResult.success) throw new Error('Spec builder failed: ' + specResult.error);
+            artifactContract = resolveArtifactContract(specResult.output, outputMode, userInput);
 
-            // Step 3: Asset (모드에 따라 스킵 가능)
-            let assetResult = null;
-            if (!modeConfig.skipAsset) {
-                assetResult = await this._executeStep('asset', userInput, steps, logs, customModels.asset, outputMode);
+            // Step 3: Researcher (intent 기반 선택)
+            if (intentPlan.needResearch !== false) {
+                await this._executeStep('researcher', userInput, steps, logs, customModels.researcher, outputMode);
             } else {
-                // Asset 스킵 시 로그만 추가
-                const skipStep = {
-                    agent: 'asset',
-                    role: 'Media Asset Generation',
-                    output: `Asset generation skipped for ${outputMode} output mode.`,
-                    success: true,
-                    error: null,
-                };
-                steps.push(skipStep);
-                this._broadcast('agent:complete', {
-                    agent: 'asset',
-                    role: 'Media Asset Generation',
-                    success: true,
-                    metrics: {},
-                    output: skipStep.output,
-                    skipped: true,
-                });
+                this._recordSkippedStep(steps, 'researcher', this.agents.researcher.role, 'Research skipped by planner intent.');
             }
 
-            // Step 4: Coder
+            // Step 4: Asset (모드 + intent 기반 선택)
+            if (!modeConfig.skipAsset && intentPlan.needAsset) {
+                await this._executeStep('asset', userInput, steps, logs, customModels.asset, outputMode);
+            } else {
+                const reason = modeConfig.skipAsset
+                    ? `Asset generation skipped for ${outputMode} output mode.`
+                    : 'Asset generation skipped by planner intent.';
+                this._recordSkippedStep(steps, 'asset', this.agents.asset.role, reason);
+            }
+
+            // Step 5: Coder
             let codeResult = await this._executeStep('coder', userInput, steps, logs, customModels.coder, outputMode, null, artifactContract);
-            codeResult = await this._repairCoderIfNeeded(codeResult, userInput, outputMode, steps, logs, customModels, artifactContract);
-            this._ensureCoderDeliverable(codeResult, steps, userInput, outputMode);
-            let currentArtifact = this._publishArtifactSnapshot(runId, codeResult, steps, outputMode);
-            const gateResult = await this._runRuleGate({
-                runId,
-                userInput,
-                outputMode,
-                steps,
-                logs,
-                customModels,
-                artifactContract,
-                currentArtifact,
-            });
+            codeResult = await this.repair.repairCoderIfNeeded(codeResult, userInput, outputMode, steps, logs, customModels, artifactContract);
+            this.repair.ensureCoderDeliverable(codeResult, steps, userInput, outputMode);
+            let currentArtifact = this.publisher.publishArtifactSnapshot(runId, codeResult, steps, outputMode);
+
+            const gateResult = await this.repair.runRuleGate({ runId, userInput, outputMode, steps, logs, customModels, artifactContract, currentArtifact });
             codeResult = gateResult.codeResult;
             currentArtifact = gateResult.currentArtifact;
 
-            // Step 5: Tester
+            // Step 6: Tester
             let testResult = await this._executeStep('tester', userInput, steps, logs, customModels.tester, outputMode, currentArtifact, artifactContract);
 
-            // Step 6: Critic
+            // Step 7: Critic
             let criticResult = await this._executeStep('critic', userInput, steps, logs, customModels.critic, outputMode, currentArtifact, artifactContract);
 
-            const qualityGateResult = await this._runQualityGate({
-                runId,
-                userInput,
-                outputMode,
-                steps,
-                logs,
-                customModels,
-                artifactContract,
-                codeResult,
-                testResult,
-                criticResult,
-                currentArtifact,
-            });
+            const qualityGateResult = await this.repair.runQualityGate({ runId, userInput, outputMode, steps, logs, customModels, artifactContract, codeResult, testResult, criticResult, currentArtifact });
             codeResult = qualityGateResult.codeResult;
             testResult = qualityGateResult.testResult;
             criticResult = qualityGateResult.criticResult;
@@ -139,7 +125,6 @@ export default class Pipeline {
             const previewPath = currentArtifact?.path || savePreviewArtifact(runId, codeResult.output, outputMode);
             const artifacts = collectArtifacts(steps, previewPath, outputMode);
 
-            // 평가
             const evaluation = this.evaluator.evaluate({
                 logs,
                 finalOutput: criticResult.output,
@@ -159,10 +144,9 @@ export default class Pipeline {
                 artifacts,
                 totalTime: Date.now() - startTime,
                 status: 'completed',
-                finalOutput: this._composeFinalOutput(steps),
+                finalOutput: this.publisher.composeFinalOutput(steps),
             };
 
-            // 장기 메모리에 저장
             this.contextEngine.saveRunToLongTerm(runId, {
                 input: userInput,
                 outputMode,
@@ -210,7 +194,6 @@ export default class Pipeline {
             outputMode,
         });
 
-        // 컨텍스트 구성 (outputMode 포함)
         const context = this.contextEngine.buildContext(agentName, {
             userInput,
             previousSteps: steps,
@@ -219,10 +202,8 @@ export default class Pipeline {
             artifactContract,
         });
 
-        // 실행
         const result = await agent.execute(userInput, context, executionOptions);
 
-        // 결과 저장
         const stepData = {
             agent: agentName,
             role: agent.role,
@@ -239,7 +220,6 @@ export default class Pipeline {
             result.log.metrics.inputArtifactId = currentArtifact.id;
         }
 
-        // 컨텍스트 엔진에 결과 저장
         this.contextEngine.storeStepResult(agentName, result);
 
         this._broadcast('agent:complete', {
@@ -262,418 +242,41 @@ export default class Pipeline {
         };
     }
 
-    _ensureCoderDeliverable(codeResult, steps, userInput, outputMode) {
-        const safeOutput = ensureRenderableOutput(codeResult.output, {
-            userInput,
-            previousSteps: steps,
-            outputMode,
-        });
-
-        codeResult.output = safeOutput;
-        const latestStep = steps[steps.length - 1];
-        if (latestStep?.agent === 'coder') {
-            latestStep.output = safeOutput;
-            latestStep.success = true;
-            latestStep.error = null;
-        }
-    }
-
-    async _repairCoderIfNeeded(codeResult, userInput, outputMode, steps, logs, customModels, artifactContract) {
-        if (this._hasRenderableCoderOutput(codeResult.output, outputMode)) {
-            return codeResult;
-        }
-
-        const repairPrompt = `${userInput}
-
-CODER RECOVERY INSTRUCTION
-- Your previous response was empty or not renderable.
-- You must now return a user-facing artifact, not explanation.
-- Output mode: ${outputMode}
-- Return a directly previewable deliverable.
-- For website mode, return exactly one self-contained html code block.`;
-
-        const retried = await this._executeStep('coder', repairPrompt, steps, logs, customModels.coder, outputMode, null, artifactContract);
-        return this._hasRenderableCoderOutput(retried.output, outputMode) ? retried : retried;
-    }
-
-    _hasRenderableCoderOutput(output, outputMode = 'website') {
-        const text = String(output || '').trim();
-        if (!text) return false;
-        if (outputMode === 'website') {
-            return /```html[\s\S]*?```/i.test(text) || /<(?:!doctype|html|body|main|section|div|form)\b/i.test(text);
-        }
-        if (['docx', 'sheet', 'slide', 'deep_research'].includes(outputMode)) {
-            return /```html[\s\S]*?```/i.test(text) || /<(?:!doctype|html|body)\b/i.test(text);
-        }
-        return true;
-    }
-
-    async _runQualityGate({ runId, userInput, outputMode, steps, logs, customModels, artifactContract, codeResult, testResult, criticResult, currentArtifact }) {
-        const minScore = config.qualityGate?.minScore || 8.5;
-        const maxRepairAttempts = config.qualityGate?.maxRepairAttempts || 0;
-        let quality = evaluateQuality(criticResult.output, outputMode);
-        let repairAttempt = 0;
-
-        while (repairAttempt < maxRepairAttempts && this._shouldRepairForQuality(quality, minScore)) {
-            repairAttempt += 1;
-            const latestViolations = [...steps].reverse().find((step) => step.agent === 'rule_gate')?.violations || [];
-            const repairMode = this._shouldEscalateRepair(latestViolations, repairAttempt) ? 'CONSTRAINED_REGENERATE' : 'PATCH_ONLY';
-            const repairInput = this._buildPatchRepairPrompt(userInput, steps, outputMode, quality, minScore, repairAttempt, currentArtifact, repairMode);
-
-            this._broadcast('pipeline:quality-repair', {
-                attempt: repairAttempt,
-                outputMode,
-                score: quality.score,
-                recommendation: quality.recommendation,
-                minScore,
-                repairMode,
-            });
-
-            codeResult = await this._executeStep('coder', repairInput, steps, logs, customModels.coder, outputMode, currentArtifact, artifactContract);
-            this._ensureCoderDeliverable(codeResult, steps, repairInput, outputMode);
-            currentArtifact = this._publishArtifactSnapshot(runId, codeResult, steps, outputMode);
-            testResult = await this._executeStep('tester', repairInput, steps, logs, customModels.tester, outputMode, currentArtifact, artifactContract);
-            criticResult = await this._executeStep('critic', repairInput, steps, logs, customModels.critic, outputMode, currentArtifact, artifactContract);
-            quality = evaluateQuality(criticResult.output, outputMode);
-        }
-
-        return { codeResult, testResult, criticResult, currentArtifact };
-    }
-
-    _shouldRepairForQuality(quality, minScore) {
-        return quality.score < minScore || quality.recommendation === 'REJECTED' || quality.recommendation === 'NEEDS_REVISION';
-    }
-
-    _buildPatchRepairPrompt(userInput, steps, outputMode, quality, minScore, repairAttempt, currentArtifact, repairMode = 'PATCH_ONLY') {
-        const testerOutput = [...steps].reverse().find((step) => step.agent === 'tester')?.output || 'No tester feedback.';
-        const criticOutput = [...steps].reverse().find((step) => step.agent === 'critic')?.output || 'No critic feedback.';
-
-        return `${userInput}
-
-QUALITY GATE REPAIR REQUEST
-- Output mode: ${outputMode}
-- Current quality score: ${quality.score}/10
-- Required minimum score: ${minScore}/10
-- Repair attempt: ${repairAttempt}
-- Repair mode: ${repairMode}
-
-You must improve the locked artifact below.
-If repair mode is PATCH_ONLY, preserve the existing structure unless a tester/critic issue explicitly requires a change.
-If repair mode is CONSTRAINED_REGENERATE, you may rebuild the artifact, but you must preserve the same user request, output mode, and core sections.
-Do not replace the page with a different concept.
-
-Locked artifact hash:
-${currentArtifact?.hash || 'unknown'}
-
-You must improve the deliverable so it can pass the quality gate.
-Prioritize the issues below and return a stronger final artifact, not analysis-only text.
-
-Latest tester feedback:
-${testerOutput}
-
-Latest critic feedback:
-${criticOutput}`;
-    }
-
-    async _runRuleGate({ runId, userInput, outputMode, steps, logs, customModels, artifactContract, currentArtifact }) {
-        const maxRepairAttempts = config.ruleGate?.maxRepairAttempts || 0;
-        let attempt = 0;
-        let codeResult = { output: currentArtifact?.content || '' };
-        let violations = this._validateArtifact(outputMode, currentArtifact?.content || '', artifactContract);
-
-        while (attempt < maxRepairAttempts && violations.length > 0) {
-            attempt += 1;
-            const repairMode = this._shouldEscalateRepair(violations, attempt) ? 'CONSTRAINED_REGENERATE' : 'PATCH_ONLY';
-            this._broadcast('pipeline:rule-gate', {
-                attempt,
-                outputMode,
-                artifactHash: currentArtifact?.hash || null,
-                repairMode,
-                violations,
-            });
-
-            const patchPrompt = `${userInput}
-
-RULE GATE PATCH REQUEST
-- Output mode: ${outputMode}
-- Repair mode: ${repairMode}
-- Locked artifact hash: ${currentArtifact?.hash || 'unknown'}
-- Violations to fix: ${violations.map((v) => v.code).join(', ')}
-
-You must correct the rule-gate violations and keep as much of the current artifact intent as possible.
-If repair mode is PATCH_ONLY, preserve the current structure and patch only the broken areas.
-If repair mode is CONSTRAINED_REGENERATE, rebuild the artifact but preserve the same user request, mode contract, and core sections.
-Return the corrected final artifact in the required output format.
-
-Violation details:
-${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`;
-
-            codeResult = await this._executeStep('coder', patchPrompt, steps, logs, customModels.coder, outputMode, currentArtifact, artifactContract);
-            this._ensureCoderDeliverable(codeResult, steps, patchPrompt, outputMode);
-            currentArtifact = this._publishArtifactSnapshot(runId, codeResult, steps, outputMode);
-            violations = this._validateArtifact(outputMode, currentArtifact.content || '', artifactContract);
-        }
-
-        this._recordRuleGateResult(steps, currentArtifact, violations);
-        return { codeResult, currentArtifact, violations };
-    }
-
-    _recordRuleGateResult(steps, currentArtifact, violations) {
-        steps.push({
-            agent: 'rule_gate',
-            role: 'Static Artifact Validation',
-            output: violations.length > 0
-                ? `Rule gate violations detected for ${currentArtifact?.id || 'unknown artifact'}:\n${violations.map((v) => `- ${v.code}: ${v.message}`).join('\n')}`
-                : `Rule gate passed for ${currentArtifact?.id || 'unknown artifact'} (${currentArtifact?.hash || 'no-hash'}).`,
-            success: violations.length === 0,
-            error: violations.length > 0 ? 'RULE_GATE_FAILED' : null,
-            consumedArtifactHash: currentArtifact?.hash || null,
-            violations,
-        });
-    }
-
-    _validateArtifact(outputMode, output, artifactContract = null) {
-        const text = String(output || '');
-        const violations = [];
-        const requiredElements = artifactContract?.requiredElements || [];
-        const forbiddenPatterns = artifactContract?.forbiddenPatterns || [];
-        const renderRequirements = artifactContract?.renderRequirements || [];
-
-        if (!text.trim()) {
-            violations.push({ code: 'EMPTY_OUTPUT', message: 'Artifact output is empty.' });
-            return violations;
-        }
-
-        if (outputMode === 'website') {
-            if (!/(?:<!doctype html>|<html\b)/i.test(text)) {
-                violations.push({ code: 'NON_RENDERABLE', message: 'Website artifact must contain a full HTML document root.' });
-            }
-            if (!/<style\b/i.test(text)) {
-                violations.push({ code: 'MISSING_STYLE_TAG', message: 'Website artifact must inline CSS in a <style> tag.' });
-            }
-            if (!/<script\b/i.test(text)) {
-                violations.push({ code: 'MISSING_SCRIPT_TAG', message: 'Website artifact must inline JS in a <script> tag when interactive behavior is needed.' });
-            }
-            if (/<link\b[^>]*rel=["']stylesheet["']/i.test(text)) {
-                violations.push({ code: 'EXTERNAL_REF_VIOLATION', message: 'External stylesheet links are forbidden for website preview artifacts.' });
-            }
-            if (/<script\b[^>]*src=/i.test(text)) {
-                violations.push({ code: 'EXTERNAL_SCRIPT_VIOLATION', message: 'External script src references are forbidden for website preview artifacts.' });
-            }
-            if (/(로그인|login|signin|auth|인증)/i.test(text + ' ' + JSON.stringify(requiredElements)) && !/<form\b/i.test(text)) {
-                violations.push({ code: 'STRUCTURE_MISSING', message: 'Login/auth pages must contain a form element.' });
-            }
-        } else if (outputMode === 'docx' || outputMode === 'deep_research') {
-            if (!/(?:<!doctype html>|<html\b)/i.test(text)) {
-                violations.push({ code: 'NON_RENDERABLE', message: 'Document artifact must contain a full HTML document root.' });
-            }
-            const headingCount = (text.match(/<h[1-3]\b/gi) || []).length;
-            if (headingCount < 2) {
-                violations.push({ code: 'STRUCTURE_MISSING', message: 'Document artifact must include at least two heading sections.' });
-            }
-            const paragraphCount = (text.match(/<p\b/gi) || []).length;
-            if (paragraphCount < 3) {
-                violations.push({ code: 'CONTENT_TOO_THIN', message: 'Document artifact must contain multiple content paragraphs.' });
-            }
-        } else if (outputMode === 'sheet') {
-            if (!/(?:<!doctype html>|<html\b)/i.test(text)) {
-                violations.push({ code: 'NON_RENDERABLE', message: 'Sheet artifact must contain a full HTML document root.' });
-            }
-            if (!/<table\b/i.test(text)) {
-                violations.push({ code: 'STRUCTURE_MISSING', message: 'Sheet artifact must contain a table.' });
-            }
-            const headerCount = (text.match(/<th\b/gi) || []).length;
-            if (headerCount < 2) {
-                violations.push({ code: 'HEADER_MISSING', message: 'Sheet artifact must contain at least two table headers.' });
-            }
-            const rowCount = (text.match(/<tr\b/gi) || []).length;
-            if (rowCount < 3) {
-                violations.push({ code: 'DATA_REGION_EMPTY', message: 'Sheet artifact must contain header and data rows.' });
-            }
-        } else if (outputMode === 'slide') {
-            if (!/(?:<!doctype html>|<html\b)/i.test(text)) {
-                violations.push({ code: 'NON_RENDERABLE', message: 'Slide artifact must contain a full HTML document root.' });
-            }
-            const slideCount = (text.match(/class=["'][^"']*\bslide\b[^"']*["']/gi) || []).length;
-            if (slideCount < 3) {
-                violations.push({ code: 'SLIDE_COUNT_TOO_LOW', message: 'Slide artifact must contain at least three slides.' });
-            }
-            if (!/<h1\b/i.test(text)) {
-                violations.push({ code: 'TITLE_SLIDE_MISSING', message: 'Slide artifact must contain a title slide heading.' });
-            }
-            const longTextBlocks = (text.match(/>[^<]{240,}</g) || []).length;
-            if (longTextBlocks > 2) {
-                violations.push({ code: 'TEXT_DENSITY_TOO_HIGH', message: 'Slide artifact contains overly dense text blocks.' });
-            }
-        }
-
-        for (const requirement of requiredElements) {
-            if (!text.toLowerCase().includes(String(requirement).toLowerCase())) {
-                violations.push({ code: 'REQUIRED_ELEMENT_MISSING', message: `Required element missing from artifact: ${requirement}` });
-            }
-        }
-
-        for (const forbidden of forbiddenPatterns) {
-            if (/external css link/i.test(forbidden) && /<link\b[^>]*rel=["']stylesheet["']/i.test(text)) {
-                violations.push({ code: 'FORBIDDEN_PATTERN', message: 'Forbidden pattern detected: external css link.' });
-            }
-            if (/external script src/i.test(forbidden) && /<script\b[^>]*src=/i.test(text)) {
-                violations.push({ code: 'FORBIDDEN_PATTERN', message: 'Forbidden pattern detected: external script src.' });
-            }
-        }
-
-        if (renderRequirements.some((r) => /body must not be empty/i.test(String(r))) && /<body[^>]*>\s*<\/body>/i.test(text)) {
-            violations.push({ code: 'EMPTY_BODY', message: 'Render requirement violated: body must not be empty.' });
-        }
-
-        return this._dedupeViolations(violations);
-    }
-
-    _dedupeViolations(violations) {
-        const seen = new Set();
-        return violations.filter((violation) => {
-            const key = `${violation.code}:${violation.message}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-        });
-    }
-
-    _resolveArtifactContract(planOutput, outputMode, userInput) {
-        const defaults = this._getDefaultArtifactContract(outputMode, userInput);
-        const parsed = this._extractPlanJson(planOutput);
-        const contract = parsed?.finalArtifactContract || {};
-        return {
-            ...defaults,
-            ...contract,
-            requiredElements: contract.requiredElements || defaults.requiredElements,
-            forbiddenPatterns: contract.forbiddenPatterns || defaults.forbiddenPatterns,
-            renderRequirements: contract.renderRequirements || defaults.renderRequirements,
+    _recordSkippedStep(steps, agentName, role, output) {
+        const skipStep = {
+            agent: agentName,
+            role,
+            output,
+            success: true,
+            error: null,
         };
-    }
-
-    _extractPlanJson(planOutput) {
-        const text = String(planOutput || '');
-        const fenced = text.match(/```json\s*([\s\S]*?)```/i);
-        const candidate = fenced ? fenced[1] : text.match(/\{[\s\S]*\}/)?.[0];
-        if (!candidate) return null;
-        try {
-            return JSON.parse(candidate);
-        } catch {
-            return null;
-        }
-    }
-
-    _getDefaultArtifactContract(outputMode, userInput) {
-        if (outputMode === 'website') {
-            const isLogin = /login|signin|signup|auth|로그인|인증|회원가입/i.test(String(userInput || ''));
-            return {
-                type: 'single self-contained HTML document',
-                requiredElements: isLogin ? ['<form', 'button', 'input'] : ['<main', '<style'],
-                forbiddenPatterns: ['external css link', 'external script src'],
-                renderRequirements: ['renderable in a single iframe', 'body must not be empty'],
-                assetPolicy: 'reuse existing asset first, generated asset second, deterministic fallback last',
-                reusePolicy: 'reuse existing implementation when present',
-                repairStrategy: 'patch existing artifact before full regeneration',
-            };
-        }
-
-        if (outputMode === 'docx' || outputMode === 'deep_research') {
-            return {
-                type: 'self-contained document HTML',
-                requiredElements: ['<h1', '<p'],
-                forbiddenPatterns: [],
-                renderRequirements: ['renderable in a single iframe', 'body must not be empty'],
-                assetPolicy: 'mode default',
-                reusePolicy: 'reuse existing implementation when present',
-                repairStrategy: 'patch existing artifact before full regeneration',
-            };
-        }
-
-        if (outputMode === 'sheet') {
-            return {
-                type: 'self-contained spreadsheet HTML',
-                requiredElements: ['<table', '<th'],
-                forbiddenPatterns: [],
-                renderRequirements: ['renderable in a single iframe', 'body must not be empty'],
-                assetPolicy: 'mode default',
-                reusePolicy: 'reuse existing implementation when present',
-                repairStrategy: 'patch existing artifact before full regeneration',
-            };
-        }
-
-        if (outputMode === 'slide') {
-            return {
-                type: 'self-contained slide deck HTML',
-                requiredElements: ['class="slide"', '<h1'],
-                forbiddenPatterns: [],
-                renderRequirements: ['renderable in a single iframe', 'body must not be empty'],
-                assetPolicy: 'reuse existing asset first, generated asset second, deterministic fallback last',
-                reusePolicy: 'reuse existing implementation when present',
-                repairStrategy: 'patch existing artifact before full regeneration',
-            };
-        }
-
-        return {
-            type: 'self-contained artifact',
-            requiredElements: [],
-            forbiddenPatterns: [],
-            renderRequirements: [],
-            assetPolicy: 'mode default',
-            reusePolicy: 'reuse existing implementation when present',
-            repairStrategy: 'patch existing artifact before full regeneration',
-        };
-    }
-
-    _shouldEscalateRepair(violations, attempt) {
-        const severeCodes = new Set([
-            'EMPTY_OUTPUT',
-            'NON_RENDERABLE',
-            'STRUCTURE_MISSING',
-            'SLIDE_COUNT_TOO_LOW',
-            'DATA_REGION_EMPTY',
-        ]);
-
-        const severeCount = violations.filter((violation) => severeCodes.has(violation.code)).length;
-        return severeCount >= 2 || violations.length >= 4 || attempt > 1;
-    }
-
-    _publishArtifactSnapshot(runId, codeResult, steps, outputMode) {
-        const previewPath = savePreviewArtifact(runId, codeResult.output, outputMode);
-        const hash = crypto.createHash('sha256').update(String(codeResult.output || '')).digest('hex');
-        const artifact = {
-            id: `artifact-${hash.slice(0, 12)}`,
-            hash,
-            path: previewPath,
-            type: outputMode,
-            producedBy: 'coder',
-            content: String(codeResult.output || '').slice(0, 12000),
-        };
-
-        const latestStep = steps[steps.length - 1];
-        if (latestStep?.agent === 'coder') {
-            latestStep.artifact = artifact;
-        }
-
-        this._broadcast('artifact:published', artifact);
-        return artifact;
-    }
-
-    _composeFinalOutput(steps) {
-        return steps
-            .filter((s) => s.success && s.output)
-            .map((s) => `## ${s.agent.charAt(0).toUpperCase() + s.agent.slice(1)} Agent (${s.role})\n\n${s.output}`)
-            .join('\n\n---\n\n');
+        steps.push(skipStep);
+        this._broadcast('agent:complete', {
+            agent: agentName,
+            role,
+            success: true,
+            metrics: {},
+            output,
+            skipped: true,
+        });
+        return skipStep;
     }
 
     _broadcast(event, data) {
         this.broadcast(JSON.stringify({ event, data, timestamp: Date.now() }));
     }
 
-    getStatus() {
+    async getStatus() {
+        await this.llmProvider.providerDetectionPromise;
+        const availableProviders = this.llmProvider.getAvailableProviders();
         return {
             isRunning: this.isRunning,
-            availableProviders: this.llmProvider.getAvailableProviders(),
+            availableProviders,
+            providerHealth: {
+                mode: availableProviders.length > 0 ? 'live' : 'demo',
+                availableProviders,
+                missingProviders: ['gemini', 'claude', 'codex'].filter((p) => !availableProviders.includes(p)),
+            },
             agentConfig: config.agentLLMMap,
             agentModels: config.agentModelMap,
             outputModes: Object.keys(config.outputModes),

@@ -33,7 +33,12 @@ Output EXACTLY AND ONLY this JSON:
     }
 
     buildPrompt(input, context) {
-        return `Analyze this request and determine if generating a premium image asset is required to fulfill the design needs:\n\nUser Request: ${input}\n\nContext:\n${context}`;
+        const compactContext = {
+            previousSteps: context?.previousSteps || [],
+            modeConfig: context?.modeConfig || null,
+            artifactContract: context?.artifactContract || null,
+        };
+        return `Analyze this request and determine if generating a premium image asset is required to fulfill the design needs:\n\nUser Request: ${input}\n\nContext:\n${JSON.stringify(compactContext, null, 2)}`;
     }
 
     async parseLLMOutput(text) {

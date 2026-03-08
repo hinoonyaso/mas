@@ -73,14 +73,40 @@ export default class BaseAgent {
         let prompt = '';
 
         if (context.previousSteps && context.previousSteps.length > 0) {
-            prompt += '## Previous Agent Results\n\n';
+            prompt += '## Previous Operational Decisions\n\n';
             for (const step of context.previousSteps) {
-                prompt += `### ${step.agent} (${step.role})\n${step.output}\n\n`;
+                prompt += `### ${step.agent} (${step.role})\n`;
+                if (step.decisionSummary?.length) {
+                    prompt += `Decision Summary:\n${step.decisionSummary.map((item) => `- ${item}`).join('\n')}\n`;
+                }
+                if (step.constraintsForNextStep?.length) {
+                    prompt += `Constraints For Next Step:\n${step.constraintsForNextStep.map((item) => `- ${item}`).join('\n')}\n`;
+                }
+                if (step.openIssues?.length) {
+                    prompt += `Open Issues:\n${step.openIssues.map((item) => `- ${item}`).join('\n')}\n`;
+                }
+                if (step.output) {
+                    prompt += `Excerpt:\n${step.output}\n`;
+                }
+                prompt += '\n';
             }
         }
 
         if (context.memory) {
-            prompt += `## Relevant Memory\n${context.memory}\n\n`;
+            prompt += '## Operational Memory\n';
+            for (const memory of context.memory) {
+                prompt += `### ${memory.agent}\n`;
+                if (memory.decisionSummary?.length) {
+                    prompt += `${memory.decisionSummary.map((item) => `- ${item}`).join('\n')}\n`;
+                }
+                if (memory.constraintsForNextStep?.length) {
+                    prompt += `Constraints:\n${memory.constraintsForNextStep.map((item) => `- ${item}`).join('\n')}\n`;
+                }
+                if (memory.openIssues?.length) {
+                    prompt += `Open Issues:\n${memory.openIssues.map((item) => `- ${item}`).join('\n')}\n`;
+                }
+                prompt += '\n';
+            }
         }
 
         if (outputMode && outputMode !== 'website') {
@@ -104,7 +130,7 @@ export default class BaseAgent {
             prompt += `Produced By: ${context.currentArtifact.producedBy}\n`;
             prompt += `Artifact Type: ${context.currentArtifact.type}\n`;
             if (context.currentArtifact.content) {
-                prompt += `\n### Artifact Content\n${context.currentArtifact.content}\n`;
+                prompt += `\n### Artifact Content\n${String(context.currentArtifact.content).slice(0, 6000)}\n`;
             }
             prompt += '\n';
         }

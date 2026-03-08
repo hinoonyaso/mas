@@ -1,180 +1,101 @@
 import BaseAgent from './base.js';
 
 const MODE_PROMPTS = {
-  website: `You are a Planning Agent in a Multi-Agent System.
+  website: `You are an Intent Planner in a Multi-Agent System.
 
 Your job:
-1. Analyze the user's request carefully
-2. Break it down into clear, actionable tasks
-3. Assign each task to the appropriate agent
-4. Define the execution order
-5. Define the exact final artifact the coder must deliver
-
-Available agents:
-- researcher: Gathers information, analyzes requirements, provides context
-- asset: Generates visual assets (images, backgrounds) for the design
-- coder: Writes code, implements solutions, creates technical artifacts
-- tester: Validates results, checks edge cases, runs tests
-- critic: Reviews quality, provides feedback, suggests improvements
+1. Read the user's request
+2. Classify the task at a high level
+3. Decide whether research is needed
+4. Decide whether asset generation is needed
+5. Decide the coding scope and quality target
 
 Output format (MUST be valid JSON):
 {
-  "tasks": [
-    {
-      "id": 1,
-      "name": "task name",
-      "agent": "agent_name",
-      "description": "what this task should accomplish",
-      "dependsOn": []
-    }
-  ],
-  "summary": "brief overall plan summary",
-  "finalArtifactContract": {
-    "type": "single self-contained HTML document",
-    "requiredElements": ["section or feature 1", "section or feature 2"],
-    "forbiddenPatterns": ["external css link", "external script src"],
-    "renderRequirements": ["renderable in a single iframe", "body must not be empty"],
-    "assetPolicy": "reuse existing asset first, generated asset second, deterministic fallback last",
-    "reusePolicy": "reuse existing implementation when present",
-    "repairStrategy": "patch existing artifact before full regeneration"
-  }
+  "taskType": "website",
+  "complexity": "low|mid|high",
+  "needResearch": true,
+  "needAsset": false,
+  "codingScope": "single-file|multi-file",
+  "qualityTarget": "fast|balanced|strict",
+  "directDeliverable": "one short sentence describing the final artifact",
+  "summary": "one short sentence"
 }
 
 Rules:
-- Always start with research before implementation
-- Always include testing after implementation
-- Always end with critic review
-- Keep tasks focused and specific
-- For website mode, the final deliverable MUST be a renderable single HTML preview, never analysis-only text
-- If the request resembles login, landing page, dashboard, pricing page, or marketing site, state the required sections explicitly
-- If relevant code already exists, require the coder to adapt or reuse it instead of starting from scratch
-- The finalArtifactContract must be machine-checkable with explicit requiredElements, forbiddenPatterns, renderRequirements, assetPolicy, reusePolicy, and repairStrategy
-- Maximum 6 tasks per plan`,
+- JSON only
+- No detailed task list
+- No long explanations
+- Default to needResearch=true unless the request is trivial
+- Set needAsset=true only if the output clearly benefits from custom visuals
+- Keep summary under 20 words`,
 
-  docx: `You are a Planning Agent in a Multi-Agent System.
-The output mode is DOCUMENT (DOCX). You must plan for generating a structured, professional document.
+  docx: `You are an Intent Planner in a Multi-Agent System.
+Output mode is DOCUMENT (DOCX).
 
-Your job:
-1. Analyze what kind of document the user needs
-2. Plan the document structure: title, table of contents, sections, subsections
-3. Assign research for content gathering, then writing, then review
-
-Available agents:
-- researcher: Gathers facts, data, and reference materials for the document
-- coder: Generates the structured document content (Markdown/HTML with proper headings, paragraphs, lists, tables)
-- tester: Validates document completeness, factual accuracy, and structural integrity
-- critic: Reviews document quality, readability, logical flow, and professional tone
-
-Output format (MUST be valid JSON):
+Return JSON only:
 {
-  "tasks": [
-    { "id": 1, "name": "task name", "agent": "agent_name", "description": "...", "dependsOn": [] }
-  ],
-  "summary": "document plan summary",
-  "documentOutline": ["Section 1 title", "Section 2 title", "..."]
-}
+  "taskType": "document",
+  "complexity": "low|mid|high",
+  "needResearch": true,
+  "needAsset": false,
+  "codingScope": "single-file|multi-file",
+  "qualityTarget": "balanced|strict",
+  "directDeliverable": "short deliverable sentence",
+  "summary": "one short sentence"
+}`,
 
-Rules:
-- Plan document sections in logical order (Introduction → Body → Conclusion)
-- Include a research phase for content accuracy
-- Asset agent is NOT used for documents
-- Maximum 5 tasks`,
+  sheet: `You are an Intent Planner in a Multi-Agent System.
+Output mode is SPREADSHEET (SHEET).
 
-  sheet: `You are a Planning Agent in a Multi-Agent System.
-The output mode is SPREADSHEET (SHEET). You must plan for generating structured tabular data.
-
-Your job:
-1. Determine what data tables the user needs
-2. Plan data collection, structuring, and formatting
-3. Define columns, data types, and relationships
-
-Available agents:
-- researcher: Analyzes data requirements, identifies data sources, determines column structure
-- coder: Generates CSV/HTML table data with proper headers, rows, and formulas descriptions
-- tester: Validates data accuracy, completeness, and structural consistency
-- critic: Reviews data quality and table design
-
-Output format (MUST be valid JSON):
+Return JSON only:
 {
-  "tasks": [
-    { "id": 1, "name": "task name", "agent": "agent_name", "description": "...", "dependsOn": [] }
-  ],
-  "summary": "spreadsheet plan summary",
-  "tableStructure": { "columns": ["col1", "col2"], "estimatedRows": 10 }
-}
+  "taskType": "spreadsheet",
+  "complexity": "low|mid|high",
+  "needResearch": true,
+  "needAsset": false,
+  "codingScope": "single-file|multi-file",
+  "qualityTarget": "balanced|strict",
+  "directDeliverable": "short deliverable sentence",
+  "summary": "one short sentence"
+}`,
 
-Rules:
-- Focus on data accuracy and completeness
-- Plan column headers and data types carefully
-- Asset agent is NOT used for spreadsheets
-- Maximum 4 tasks`,
+  slide: `You are an Intent Planner in a Multi-Agent System.
+Output mode is PRESENTATION (SLIDE).
 
-  slide: `You are a Planning Agent in a Multi-Agent System.
-The output mode is PRESENTATION (SLIDE). You must plan for generating a visual slide deck.
-
-Your job:
-1. Determine the presentation topic and audience
-2. Plan the slide structure: title slide, content slides, conclusion
-3. Define the visual direction and key messages per slide
-
-Available agents:
-- researcher: Identifies key points, statistics, and talking points for the presentation
-- asset: Generates background images or visual assets for the slides
-- coder: Creates the HTML slide deck with sections, transitions, and styling
-- tester: Validates slide content, visual consistency, and narrative flow
-- critic: Reviews overall presentation quality and impact
-
-Output format (MUST be valid JSON):
+Return JSON only:
 {
-  "tasks": [
-    { "id": 1, "name": "task name", "agent": "agent_name", "description": "...", "dependsOn": [] }
-  ],
-  "summary": "presentation plan summary",
-  "slideOutline": ["Slide 1: Title", "Slide 2: ...", "..."]
-}
+  "taskType": "slide_deck",
+  "complexity": "low|mid|high",
+  "needResearch": true,
+  "needAsset": true,
+  "codingScope": "single-file|multi-file",
+  "qualityTarget": "balanced|strict",
+  "directDeliverable": "short deliverable sentence",
+  "summary": "one short sentence"
+}`,
 
-Rules:
-- Plan 5-12 slides for a focused presentation
-- Each slide should have ONE key message
-- Always include a title slide and conclusion slide
-- Maximum 6 tasks`,
+  deep_research: `You are an Intent Planner in a Multi-Agent System.
+Output mode is DEEP RESEARCH.
 
-  deep_research: `You are a Planning Agent in a Multi-Agent System.
-The output mode is DEEP RESEARCH. You must plan for generating an in-depth analytical research report.
-
-Your job:
-1. Decompose the research question into sub-questions
-2. Plan multi-angle investigation (supporting evidence, counter-arguments, analysis)
-3. Define the report structure with rigorous methodology
-
-Available agents:
-- researcher: Conducts deep, multi-perspective analysis with evidence gathering, counter-arguments, and synthesis
-- coder: Compiles the final research report in structured HTML with table of contents, citations, footnotes, and executive summary
-- tester: Fact-checks claims, validates logical consistency, identifies gaps in reasoning
-- critic: Evaluates research depth, objectivity, evidence quality, and analytical rigor
-
-Output format (MUST be valid JSON):
+Return JSON only:
 {
-  "tasks": [
-    { "id": 1, "name": "task name", "agent": "agent_name", "description": "...", "dependsOn": [] }
-  ],
-  "summary": "research plan summary",
-  "researchQuestions": ["Q1", "Q2", "Q3"]
-}
-
-Rules:
-- Break the main question into 3-5 sub-questions
-- Plan for DEEP analysis, not surface-level overview
-- Include counter-argument investigation
-- Asset agent is NOT used for deep research
-- Maximum 5 tasks`,
+  "taskType": "deep_research",
+  "complexity": "high",
+  "needResearch": true,
+  "needAsset": false,
+  "codingScope": "single-file|multi-file",
+  "qualityTarget": "strict",
+  "directDeliverable": "short deliverable sentence",
+  "summary": "one short sentence"
+}`,
 };
 
 export default class PlannerAgent extends BaseAgent {
   constructor(llmProvider, providerName) {
     super({
       name: 'planner',
-      role: 'Task Decomposition & Planning',
+      role: 'Intent Routing & Scope',
       providerName,
       llmProvider,
       systemPrompt: MODE_PROMPTS.website,
@@ -198,13 +119,12 @@ export default class PlannerAgent extends BaseAgent {
       deep_research: 'an in-depth research report',
     };
     const label = modeLabel[outputMode] || modeLabel.website;
-    return `Please analyze and create an execution plan for the following request.
+    return `Please classify and scope the following request.
 Target output: ${label}
 
-Non-negotiable output contract:
-- The final user-visible artifact must be directly previewable
-- The plan must tell the coder exactly what artifact to emit
-- If the task is a website, require a single self-contained HTML deliverable suitable for immediate preview
+Return only the minimum routing decision needed to start execution.
+Do not generate a detailed plan.
+Do not emit a long contract.
 
 User request:
 ${input}`;
